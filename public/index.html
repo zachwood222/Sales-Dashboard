@@ -25,6 +25,7 @@ table{width:100%;border-collapse:collapse;font-size:.86rem}th,td{padding:10px 6p
 .select,.file{background:#fff;border:1px solid #d8ddff;border-radius:8px;color:var(--text);padding:8px}
 .note{font-size:.78rem;color:var(--muted);margin-top:8px}
 #uploadStatus{font-size:.78rem;color:var(--muted);margin-top:8px;max-width:500px}
+.tabs{display:flex;gap:6px;margin:10px 0}.tab-btn{background:#1d2b50;color:#cbd6ff;border:1px solid var(--line);padding:6px 10px;border-radius:8px;cursor:pointer}.tab-btn.active{background:#f4e9c9;color:#111}.tab{display:none}.tab.active{display:block}.filters{display:flex;gap:8px;flex-wrap:wrap;align-items:end}.field{display:flex;flex-direction:column;gap:4px;font-size:.8rem;color:var(--muted)}
 .tabs{display:flex;gap:10px;margin:16px 0;flex-wrap:wrap}
 .tab-btn{border:none;background:#dfe5ff;color:#2b2f54;padding:10px 14px;border-radius:10px;cursor:pointer;font-weight:700}
 .tab-btn.active{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff}
@@ -112,7 +113,7 @@ table{width:100%;border-collapse:collapse;font-size:.86rem}th,td{padding:10px 6p
   </section>
 </div>
 <script>
-const $=id=>document.getElementById(id); let chart;
+const $=id=>document.getElementById(id); let chart; let dataset={daily:[],monthly:[],kpis:{}};
 const MODE_KEY='salesDashboard.dataMode';
 const money=n=>n==null?'—':new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(n);
 const pct=n=>n==null?'—':(n*100).toFixed(1)+'%'; const num=n=>(+n||0);
@@ -189,6 +190,61 @@ async function uploadTicketPdf(){
 }
 
 $('dataMode').value = readMode();
+function monthlyChart(rows){
+ const labels=(rows||[]).map(r=>r.month);
+ const revenue=(rows||[]).map(r=>num(r.subtotal));
+ const margin=(rows||[]).map(r=>num(r.grossMargin));
+ if(window._monthChart){window._monthChart.destroy();}
+ const ctx=$('monthChart')?.getContext('2d');
+ if(!ctx)return;
+ window._monthChart=new Chart(ctx,{type:'bar',data:{labels,datasets:[{label:'Revenue',data:revenue,backgroundColor:'rgba(111,168,255,.55)'},{label:'Gross Margin',data:margin,backgroundColor:'rgba(56,211,159,.55)'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#e7ecff'}}},scales:{x:{ticks:{color:'#9aa7ce'}},y:{ticks:{color:'#9aa7ce'}}}}});
+}
+
+function renderWeekdayFilter(){
+ const days=[...new Set((dataset.daily||[]).map(r=>r.weekday).filter(Boolean))];
+ $('weekdayFilter').innerHTML='<option value="">All</option>'+days.map(d=>`<option value="${d}">${d}</option>`).join('');
+}
+
+function renderDailyTable(){
+ const start=$('dailyStart').value; const end=$('dailyEnd').value; const weekday=$('weekdayFilter').value; const tender=$('tenderFilter').value;
+ let rows=[...(dataset.daily||[])].sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+ rows=rows.filter(r=>(!start||r.date>=start)&&(!end||r.date<=end)&&(!weekday||r.weekday===weekday));
+ if(tender==='cash') rows=rows.filter(r=>num(r.cash)>0);
+ if(tender==='check') rows=rows.filter(r=>num(r.deposits)>0);
+ if(tender==='card') rows=rows.filter(r=>num(r.card)>0);
+ let html='<thead><tr><th>Date</th><th>Weekday</th><th>Subtotal</th><th>Cash</th><th>Check</th><th>Card</th><th>Tax+Delivery</th><th>Source</th></tr></thead><tbody>';
+ rows.forEach(r=>{const tax=num(r.stateTax)+num(r.cityTax)+num(r.deliveryFee); html+=`<tr><td>${r.date||''}</td><td>${r.weekday||''}</td><td>${money(r.subtotal)}</td><td>${money(r.cash)}</td><td>${money(r.deposits)}</td><td>${money(r.card)}</td><td>${money(tax)}</td><td>${r.source||''}</td></tr>`});
+ html+='</tbody><tfoot><tr><td colspan="2">Totals</td><td>'+money(sum(rows,'subtotal'))+'</td><td>'+money(sum(rows,'cash'))+'</td><td>'+money(sum(rows,'deposits'))+'</td><td>'+money(sum(rows,'card'))+'</td><td>'+money(rows.reduce((a,r)=>a+num(r.stateTax)+num(r.cityTax)+num(r.deliveryFee),0))+'</td><td></td></tr></tfoot>';
+ $('dailyTable').innerHTML=html;
+ $('dailyCount').textContent=`${rows.length} days shown`;
+ window._dailyExport=rows;
+ renderMixCharts(rows);
+}
+function renderMixCharts(rows){
+ const last=rows?.length?rows:lastNDaysRows(dataset.daily||[],30);
+ const cash=sum(last,'cash'),check=sum(last,'deposits'),card=sum(last,'card');
+ if(window._mixPie)window._mixPie.destroy();
+ if(window._mixBar)window._mixBar.destroy();
+ const pie=$('mixPie')?.getContext('2d'); const bar=$('mixBar')?.getContext('2d');
+ if(pie){window._mixPie=new Chart(pie,{type:'doughnut',data:{labels:['Cash','Check','Card'],datasets:[{data:[cash,check,card],backgroundColor:['#38d39f','#f9c74f','#6fa8ff']}]},options:{plugins:{legend:{labels:{color:'#e7ecff'}}}}});}
+ if(bar){window._mixBar=new Chart(bar,{type:'bar',data:{labels:last.map(r=>r.date),datasets:[{label:'Cash',data:last.map(r=>num(r.cash)),backgroundColor:'#38d39f'},{label:'Check',data:last.map(r=>num(r.deposits)),backgroundColor:'#f9c74f'},{label:'Card',data:last.map(r=>num(r.card)),backgroundColor:'#6fa8ff'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#e7ecff'}}},scales:{x:{ticks:{color:'#9aa7ce'}},y:{ticks:{color:'#9aa7ce'}}}}});}
+}
+function exportCsv(type){
+ const rows=type==='monthly'?(window._monthlyExport||[]):(window._dailyExport||[]);
+ if(!rows.length)return;
+ const keys=Object.keys(rows[0]);
+ const lines=[keys.join(',')].concat(rows.map(r=>keys.map(k=>JSON.stringify(r[k]??'')).join(',')));
+ const blob=new Blob([lines.join('\n')],{type:'text/csv;charset=utf-8;'});
+ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`${type}-sales.csv`; a.click(); URL.revokeObjectURL(a.href);
+}
+
+document.querySelectorAll('.tab-btn').forEach(btn=>btn.addEventListener('click',()=>{
+ document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+ document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+ btn.classList.add('active');
+ document.getElementById(btn.dataset.tab)?.classList.add('active');
+}));
+
 $('dataMode').addEventListener('change', e=>{ saveMode(e.target.value); load(); });
 initTabs();
 load(); setInterval(load,5*60*1000);
