@@ -32,6 +32,50 @@ function toDirectDownload(url) {
   return url;
 }
 
+
+function normalizeHeaderName(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function buildHeaderIndexMap(headers = []) {
+  const map = {};
+  headers.forEach((header, idx) => {
+    const key = normalizeHeaderName(header);
+    if (key && map[key] === undefined) map[key] = idx;
+  });
+  return map;
+}
+
+function resolveHeaderIndex(idxMap, names = []) {
+  for (const name of names) {
+    const idx = idxMap[normalizeHeaderName(name)];
+    if (idx !== undefined) return idx;
+  }
+  return undefined;
+}
+
+function logMissingHeaders(sheetName, idxMap, expected) {
+  const missing = expected.filter(({ aliases }) => resolveHeaderIndex(idxMap, aliases) === undefined);
+  if (missing.length) {
+    console.warn(`[parseWorkbook] ${sheetName}: missing headers -> ${missing.map(h => h.aliases[0]).join(', ')}. Using defaults.`);
+  }
+}
+
+function getNum(row, idxMap, ...aliases) {
+  const idx = resolveHeaderIndex(idxMap, aliases);
+  return idx === undefined ? 0 : (+row[idx] || 0);
+}
+
+function getText(row, idxMap, ...aliases) {
+  const idx = resolveHeaderIndex(idxMap, aliases);
+  return idx === undefined ? '' : String(row[idx] || '');
+}
+
 async function downloadFile() {
   if (!FILE_URL) {
     console.log('No FILE_URL set — using local file if present');
@@ -51,11 +95,39 @@ function parseWorkbook() {
   // ── Daily Entry ──
   const rawDE = xlsx.utils.sheet_to_json(wb.Sheets['Daily Entry'], { header: 1 });
   const headers = rawDE[1]; // row index 1 is the real header
+  const deIdxMap = buildHeaderIndexMap(headers);
+  logMissingHeaders('Daily Entry', deIdxMap, [
+    { aliases: ['Cash Sales', 'Cash'] },
+    { aliases: ['Card Sales', 'Card'] },
+    { aliases: ['Check Sales', 'Check', 'Deposits'] },
+    { aliases: ['Subtotal'] },
+    { aliases: ['State Tax'] },
+    { aliases: ['City Tax'] },
+  ]);
+
   const dailyRows = rawDE.slice(2).filter(r => r[0] && r[1]);
 
   const daily = dailyRows.map(r => ({
     date: r[0] instanceof Date ? r[0].toISOString().slice(0, 10)
          : typeof r[0] === 'number' ? xlsDateToISO(r[0]) : String(r[0]),
+    subtotal: getNum(r, deIdxMap, 'Subtotal'),
+    cash: getNum(r, deIdxMap, 'Cash Sales', 'Cash'),
+    card: getNum(r, deIdxMap, 'Card Sales', 'Card'),
+    deposits: getNum(r, deIdxMap, 'Check Sales', 'Check', 'Deposits'),
+    deliveryFee: getNum(r, deIdxMap, 'Delivery Fee', 'Delivery Fees'),
+    stateTax: getNum(r, deIdxMap, 'State Tax'),
+    cityTax: getNum(r, deIdxMap, 'City Tax'),
+    grossMarginPct: getNum(r, deIdxMap, 'Gross Margin %', 'Gross Margin Pct'),
+    grossMarginDollar: getNum(r, deIdxMap, 'Gross Margin $', 'Gross Margin Dollar'),
+    subtotalWithDelivery: getNum(r, deIdxMap, 'Subtotal + Delivery', 'Subtotal With Delivery'),
+    salesPerSqFt: getNum(r, deIdxMap, 'Sales / Sq Ft', 'Sales Per Sq Ft'),
+    weekday: getText(r, deIdxMap, 'Weekday'),
+    yearMonth: getText(r, deIdxMap, 'Year Month', 'Year-Month'),
+  const headers = rawDE[1] || []; // row index 1 is the real header
+  const dailyRows = rawDE.slice(2).filter(r => r[0] && r[1]);
+
+  const daily = dailyRows.map(r => ({
+    date: normalizeDate(r[0]),
     subtotal:    +r[1]  || 0,
     cash:        +r[2]  || 0,
     card:        +r[3]  || 0,
@@ -68,17 +140,35 @@ function parseWorkbook() {
     subtotalWithDelivery: +r[14] || 0,
     salesPerSqFt: +r[15] || 0,
     weekday: r[17] || '',
-    yearMonth: String(r[19] || ''),
+    yearMonth: normalizeMonth(r[19] || r[0]),
   }));
 
   // ── Monthly Summary ──
   const rawMS = xlsx.utils.sheet_to_json(wb.Sheets['Monthly Summary'], { header: 1 });
+  const msHeaders = rawMS[1] || rawMS[0] || [];
+  const msIdxMap = buildHeaderIndexMap(msHeaders);
+  logMissingHeaders('Monthly Summary', msIdxMap, [
+    { aliases: ['Sales'] },
+    { aliases: ['Delivery Fees', 'Delivery Fee'] },
+    { aliases: ['Subtotal'] },
+    { aliases: ['Deposits'] },
+    { aliases: ['Gross Margin'] },
+  ]);
+
   const monthly = rawMS.slice(2)
     .filter(r => r[0] instanceof Date || typeof r[0] === 'number')
     .map(r => {
       const d = r[0] instanceof Date ? r[0] : new Date(Math.round((r[0] - 25569) * 86400 * 1000));
       return {
         month: `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`,
+        sales: getNum(r, msIdxMap, 'Sales'),
+        deliveryFees: getNum(r, msIdxMap, 'Delivery Fees', 'Delivery Fee'),
+        subtotal: getNum(r, msIdxMap, 'Subtotal'),
+        deposits: getNum(r, msIdxMap, 'Deposits'),
+        grossMargin: getNum(r, msIdxMap, 'Gross Margin', 'Gross Margin $'),
+        salesPerSqFt: getNum(r, msIdxMap, 'Sales / Sq Ft', 'Sales Per Sq Ft'),
+        goalVariance: getNum(r, msIdxMap, 'Goal Variance'),
+        month: normalizeMonth(d),
         sales: +r[2] || 0,
         deliveryFees: +r[3] || 0,
         subtotal: +r[4] || 0,
@@ -121,16 +211,37 @@ function parseWorkbook() {
 
   // ── Weekday Analysis ──
   const rawWA = xlsx.utils.sheet_to_json(wb.Sheets['Weekday Analysis'], { header: 1 });
+  const waHeaders = rawWA[1] || rawWA[0] || [];
+  const waIdxMap = buildHeaderIndexMap(waHeaders);
+  logMissingHeaders('Weekday Analysis', waIdxMap, [
+    { aliases: ['Day', 'Weekday'] },
+    { aliases: ['Avg Sales', 'Average Sales'] },
+    { aliases: ['Avg Subtotal', 'Average Subtotal'] },
+    { aliases: ['Avg Gross Margin', 'Average Gross Margin'] },
+    { aliases: ['Days Loaded'] },
+    { aliases: ['Goal Hit %', 'Goal Hit Pct'] },
+  ]);
+
   const weekdays = rawWA.slice(2).filter(r => r[0]).map(r => ({
-    day: r[0],
-    avgSales: +r[1] || 0,
-    avgSubtotal: +r[2] || 0,
-    avgGrossMargin: +r[3] || 0,
-    daysLoaded: +r[4] || 0,
-    goalHitPct: +r[5] || 0,
+    day: getText(r, waIdxMap, 'Day', 'Weekday') || r[0],
+    avgSales: getNum(r, waIdxMap, 'Avg Sales', 'Average Sales'),
+    avgSubtotal: getNum(r, waIdxMap, 'Avg Subtotal', 'Average Subtotal'),
+    avgGrossMargin: getNum(r, waIdxMap, 'Avg Gross Margin', 'Average Gross Margin'),
+    daysLoaded: getNum(r, waIdxMap, 'Days Loaded'),
+    goalHitPct: getNum(r, waIdxMap, 'Goal Hit %', 'Goal Hit Pct'),
   }));
 
   const computedKpis = computeKpis({ daily, monthly });
+  const dailyByDate = [...daily].sort((a, b) => b.date.localeCompare(a.date));
+  const monthlyByMonth = [...monthly].sort((a, b) => b.month.localeCompare(a.month));
+  const rolling7Day = dailyByDate.slice(0, 7);
+  const rolling30Day = dailyByDate.slice(0, 30);
+
+  const dailyTotals = summarizeDaily(dailyByDate);
+  const monthlyTotals = summarizeMonthly(monthlyByMonth);
+  const monthlyAverages = averageMonthly(monthlyByMonth);
+
+  const periods = buildPeriods(dailyByDate, monthlyByMonth);
 
   return {
     daily,
@@ -252,11 +363,85 @@ function sumBy(rows, key) {
 
 function daysInMonth(year, monthOneBased) {
   return new Date(Date.UTC(year, monthOneBased, 0)).getUTCDate();
+    kpis,
+    weekdays,
+    dailyByDate,
+    monthlyByMonth,
+    rolling: {
+      days7: rolling7Day,
+      days30: rolling30Day,
+      summary7: summarizeDaily(rolling7Day),
+      summary30: summarizeDaily(rolling30Day),
+    },
+    summaries: {
+      dailyTotals,
+      monthlyTotals,
+      monthlyAverages,
+    },
+    periods,
+  };
 }
 
 function xlsDateToISO(serial) {
   const d = new Date(Math.round((serial - 25569) * 86400 * 1000));
   return d.toISOString().slice(0, 10);
+}
+
+function normalizeDate(value) {
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  if (typeof value === 'number') return xlsDateToISO(value);
+  const date = new Date(String(value));
+  if (!Number.isNaN(date.getTime())) return date.toISOString().slice(0, 10);
+  return String(value || '');
+}
+
+function normalizeMonth(value) {
+  const isoDate = normalizeDate(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return isoDate.slice(0, 7);
+  const asMonth = String(value || '').trim();
+  const mm = asMonth.match(/^(\d{4})-(\d{1,2})$/);
+  if (mm) return `${mm[1]}-${String(mm[2]).padStart(2, '0')}`;
+  return asMonth;
+}
+
+function summarizeDaily(rows) {
+  return rows.reduce((acc, row) => {
+    acc.subtotal += row.subtotal || 0;
+    acc.taxes += (row.stateTax || 0) + (row.cityTax || 0);
+    acc.deposits += row.deposits || 0;
+    acc.grossMarginDollar += row.grossMarginDollar || 0;
+    return acc;
+  }, { subtotal: 0, taxes: 0, deposits: 0, grossMarginDollar: 0 });
+}
+
+function summarizeMonthly(rows) {
+  return rows.reduce((acc, row) => {
+    acc.sales += row.sales || 0;
+    acc.subtotal += row.subtotal || 0;
+    acc.grossMargin += row.grossMargin || 0;
+    acc.salesPerSqFt += row.salesPerSqFt || 0;
+    return acc;
+  }, { sales: 0, subtotal: 0, grossMargin: 0, salesPerSqFt: 0 });
+}
+
+function averageMonthly(rows) {
+  if (!rows.length) return { sales: 0, subtotal: 0, grossMargin: 0, salesPerSqFt: 0 };
+  const totals = summarizeMonthly(rows);
+  return {
+    sales: totals.sales / rows.length,
+    subtotal: totals.subtotal / rows.length,
+    grossMargin: totals.grossMargin / rows.length,
+    salesPerSqFt: totals.salesPerSqFt / rows.length,
+  };
+}
+
+function buildPeriods(dailyRows, monthlyRows) {
+  const today = dailyRows[0]?.date || null;
+  const yesterday = dailyRows[1]?.date || null;
+  const thisMonth = monthlyRows[0]?.month || null;
+  const lastMonth = monthlyRows[1]?.month || null;
+  const ytd = thisMonth ? `${thisMonth.slice(0, 4)}-01` : null;
+  return { today, yesterday, thisMonth, lastMonth, ytd };
 }
 
 async function refreshData() {
