@@ -40,3 +40,11 @@ test('fixture: ambiguous_date preserves parse and flag', () => {
   assert.equal(result.record.date, '2026-04-05');
   assert.equal(result.metadata.date.error, 'ambiguous_date');
 });
+
+
+test('fixture: fowhand handwritten ticket style parses total sale as subtotal', () => {
+  const result = parseDailyRecordFromText(samples[3].text);
+  assert.equal(result.record.date, '2026-05-07');
+  assert.equal(result.record.subtotal, 270.18);
+  assert.equal(result.record.stateTax, 17.68);
+});

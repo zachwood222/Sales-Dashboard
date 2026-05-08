@@ -10,5 +10,9 @@
   {
     "name": "ambiguous_date",
     "text": "Date: 04/05/2026\nSubtotal 999.99\nCash 499.99\nCard 500.00\nDeposits 0\nDelivery Fee 12\nState Tax 62.00\nCity Tax 31.00"
+  },
+  {
+    "name": "fowhand_handwritten_style",
+    "text": "DATE: 5/7/26\nSUB-TOTAL 252.50\nSST 17.68\nTOTAL SALE 270.18\nPAYMENT 270.18"
   }
 ]
