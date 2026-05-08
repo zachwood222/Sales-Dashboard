@@ -5,6 +5,7 @@ const cron = require('node-cron');
 const path = require('path');
 const fs = require('fs');
 const { mergeDailySources, buildSourceStats } = require('./src/data/mergeSources');
+const { parseTicketPdf } = require('./src/ingest/parseTicketPdf');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -535,14 +536,60 @@ app.post('/api/upload-ticket', (req, res) => {
     if (!isPdf || !req.body || !req.body.length) {
       return res.status(400).json({ error: 'Expected a PDF upload body.' });
     }
-    lastUploadIngest = new Date().toISOString();
-    return res.json({
-      ok: true,
-      ingestedAt: lastUploadIngest,
-      lastUploadIngest,
-      parsedTotals: { subtotal: 0, tax: 0, delivery: 0 },
-      errors: ['PDF parser not configured on server yet; showing placeholder totals.']
-    });
+    const { randomUUID } = require('crypto');
+    const tempPath = path.join(__dirname, 'data', 'uploads', `ticket-${Date.now()}-${randomUUID()}.pdf`);
+    fs.mkdirSync(path.dirname(tempPath), { recursive: true });
+    fs.writeFileSync(tempPath, req.body);
+
+    const parseWithHeuristicTextExtract = async (buffer) => {
+      const text = buffer
+        .toString('latin1')
+        .replace(/\r/g, '\n')
+        .replace(/\(([^)]{1,500})\)/g, '$1\n')
+        .replace(/\\n/g, '\n')
+        .replace(/\\r/g, '\n')
+        .replace(/\\t/g, ' ')
+        .replace(/[^\x20-\x7E\n]/g, ' ')
+        .replace(/[ ]{2,}/g, ' ');
+      const pages = text.split(/\/Type\s*\/Page\b/g).map((p) => p.trim()).filter(Boolean);
+      return pages.length ? pages : [text];
+    };
+
+    parseTicketPdf(tempPath, { extractPdfText: parseWithHeuristicTextExtract })
+      .then(async (parsed) => {
+        fs.unlinkSync(tempPath);
+        const normalized = (parsed.records || [])
+          .map((r) => normalizeDailyRow(r, 'upload'))
+          .filter((r) => r.date);
+        if (normalized.length) {
+          uploadStore.records = mergeDailySources(uploadStore.records, normalized, { policy: 'upload_wins' });
+          uploadStore.lastUploadAt = new Date().toISOString();
+          saveUploadStore();
+          await refreshData({ force: true, reason: 'upload_ticket' });
+        }
+
+        const parsedTotals = normalized.reduce((acc, row) => {
+          acc.subtotal += +row.subtotal || 0;
+          acc.tax += (+row.stateTax || 0) + (+row.cityTax || 0);
+          acc.delivery += +row.deliveryFee || 0;
+          return acc;
+        }, { subtotal: 0, tax: 0, delivery: 0 });
+
+        lastUploadIngest = new Date().toISOString();
+        return res.json({
+          ok: true,
+          ingestedAt: lastUploadIngest,
+          lastUploadIngest,
+          parsedTotals,
+          errors: normalized.length ? [] : ['No readable daily records were found in the uploaded PDF.'],
+          pageCount: parsed.parserMeta?.pageCount || 0,
+        });
+      })
+      .catch((err) => {
+        try { fs.unlinkSync(tempPath); } catch (_) {}
+        return res.status(500).json({ error: `Failed to parse PDF: ${err.message}` });
+      });
+    return;
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
