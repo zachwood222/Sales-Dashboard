@@ -149,11 +149,13 @@ function apply(json){
  $('ytd').textContent=money(kpis.ytdSubtotal); $('marginSub').textContent='YTD gross margin '+money(ytdGM);
  $('gmroi').textContent=mult(kpis.ytdGMROI); $('invSub').textContent='Avg inventory cost '+money(kpis.avgInventoryCost);
  $('ticket').textContent=money(kpis.avgTicket); $('deposit').textContent=pct(kpis.depositPct); $('sqft').textContent='$'+(+kpis.salesPerSqFt||0).toFixed(2); $('best').textContent=money(kpis.bestDaySubtotal)+' ('+(kpis.bestDayWeekday||'')+')'; $('dailyGoal').textContent=money(kpis.dailyGoal); $('monthlyGoal').textContent=money(kpis.monthlyGoal);
- const last30=lastNDaysRows(daily,30); const cash=sum(last30,'cash'), card=sum(last30,'card'), check=sum(last30,'check'), total=Math.max(1,cash+card+check); $('mixVal').textContent=pct(card/total)+' card';
+ const last30=lastNDaysRows(daily,30);
+ const cash=sum(last30,'cash'), check=sum(last30,'deposits'), card=sum(last30,'card');
+ const total=Math.max(1,cash+check+card);
+ $('mixVal').textContent=pct(card/total)+' card';
  $('mixSub').textContent=money(cash)+' cash / '+money(check)+' check / '+money(card)+' card';
  const last7=lastNDaysRows(daily,7), prev7=[...daily].sort((a,b)=>a.date.localeCompare(b.date)).slice(-14,-7); const last7Sales=sum(last7,'subtotal'), prev7Sales=sum(prev7,'subtotal');
  const ch=prev7Sales?((last7Sales-prev7Sales)/prev7Sales):0; $('last7').textContent=money(last7Sales); $('last7Sub').textContent=(ch>=0?'+':'')+(ch*100).toFixed(1)+'% vs prior 7 days';
- const last30=lastNDaysRows(daily,30); const cash=sum(last30,'cash'), card=sum(last30,'card'), total=Math.max(1,cash+card); $('mixVal').textContent=pct(card/total)+' card'; $('mixSub').textContent=money(cash)+' cash / '+money(card)+' card';
  const tax=sum(last30,'stateTax')+sum(last30,'cityTax'), del=sum(last30,'deliveryFee'); $('tax').textContent=money(tax+del); $('taxSub').textContent='Taxes '+money(tax)+' · Delivery '+money(del);
  monthlyChart(monthly);
  renderWeekdayFilter();
