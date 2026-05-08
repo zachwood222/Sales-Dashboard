@@ -1,12 +1,12 @@
 const fs = require('fs/promises');
 
 const FIELD_MAP = {
-  subtotal: ['subtotal', 'sub total', 'sub-total'],
+  subtotal: ['total sale', 'subtotal', 'sub total', 'sub-total'],
   cash: ['cash'],
   card: ['card', 'credit card', 'debit card'],
   deposits: ['deposits', 'deposit'],
   deliveryFee: ['delivery fee', 'delivery', 'del fee'],
-  stateTax: ['state tax', 'st tax'],
+  stateTax: ['state tax', 'st tax', 'sst'],
   cityTax: ['city tax', 'cty tax']
 };
 
@@ -74,12 +74,14 @@ function normalizeDate(rawDate, options = {}) {
 }
 
 function extractField(lines, aliases) {
-  for (const line of lines) {
-    const lower = line.toLowerCase();
-    if (!aliases.some(alias => lower.includes(alias))) continue;
+  for (const alias of aliases) {
+    for (const line of lines) {
+      const lower = line.toLowerCase();
+      if (!lower.includes(alias)) continue;
 
-    const amount = line.match(/(-?\$?\(?\d[\d,]*(?:\.\d{1,2})?\)?)/);
-    if (amount) return { raw: amount[1], sourceLine: line };
+      const amount = line.match(/(-?\$?\(?\d[\d,]*(?:\.\d{1,2})?\)?)/);
+      if (amount) return { raw: amount[1], sourceLine: line };
+    }
   }
 
   return { raw: null, sourceLine: null };
