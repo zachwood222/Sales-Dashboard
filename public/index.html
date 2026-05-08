@@ -110,6 +110,10 @@ const pct=n=>n==null?'—':(n*100).toFixed(1)+'%'; const num=n=>(+n||0);
 const mult=n=>n==null?'—':n.toFixed(2)+'×';
 const sum=(rows,key)=>rows.reduce((total,row)=>total+num(row?.[key]),0);
 const avg=(rows,key)=>rows.length?sum(rows,key)/rows.length:0;
+const lastNDaysRows=(rows,days)=>{
+ const sorted=[...(rows||[])].sort((a,b)=>String(a?.date||'').localeCompare(String(b?.date||'')));
+ return sorted.slice(-Math.max(0,days));
+};
 
 function renderMonthlyTable(){
  const rows=[...dataset.monthly].sort((a,b)=>a.month.localeCompare(b.month)).map(r=>({month:r.month,subtotal:num(r.subtotal),grossMargin:num(r.grossMargin),gmPct:num(r.grossMarginPct),deposits:num(r.deposits),mom:r.subtotalPrev?((num(r.subtotal)-num(r.subtotalPrev))/num(r.subtotalPrev)):null}));
