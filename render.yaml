@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: fowhand-dashboard
+    env: node
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: FILE_URL
+        sync: false   # you'll paste your Drive/Dropbox URL in the Render dashboard
+    disk:
+      name: data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1

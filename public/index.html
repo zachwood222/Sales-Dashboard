@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fowhand Furniture — Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #f5f4f0;
+    --surface: #ffffff;
+    --surface2: #f0ede8;
+    --text: #1a1a18;
+    --muted: #6b6b67;
+    --border: rgba(0,0,0,0.08);
+    --green: #1D9E75;
+    --green-light: #EAF3DE;
+    --green-dark: #0F6E56;
+    --red: #E24B4A;
+    --red-light: #FCEBEB;
+    --amber: #BA7517;
+    --amber-light: #FAEEDA;
+    --blue: #185FA5;
+    --blue-light: #E6F1FB;
+    --pink: #D4537E;
+  }
+
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  .topbar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 14px 32px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 10; }
+  .topbar-left { display: flex; align-items: center; gap: 12px; }
+  .logo { font-size: 15px; font-weight: 600; letter-spacing: -0.02em; color: var(--text); }
+  .logo span { color: var(--green); }
+  .month-tag { background: var(--surface2); color: var(--muted); font-size: 12px; padding: 4px 10px; border-radius: 20px; }
+  .refresh-btn { background: none; border: 1px solid var(--border); color: var(--muted); font-size: 12px; padding: 5px 12px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all 0.15s; }
+  .refresh-btn:hover { border-color: var(--green); color: var(--green); }
+  .last-updated { font-size: 11px; color: var(--muted); }
+
+  .main { max-width: 1100px; margin: 0 auto; padding: 28px 24px; }
+
+  .section-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); margin-bottom: 12px; }
+
+  .kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 10px; }
+  .kpi { background: var(--surface); border-radius: 10px; padding: 16px 18px; border: 1px solid var(--border); }
+  .kpi-label { font-size: 11px; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .kpi-value { font-size: 24px; font-weight: 600; letter-spacing: -0.03em; color: var(--text); line-height: 1; }
+  .kpi-sub { font-size: 11px; color: var(--muted); margin-top: 5px; }
+  .kpi.danger .kpi-value { color: var(--red); }
+  .kpi.success .kpi-value { color: var(--green-dark); }
+  .kpi.warn .kpi-value { color: var(--amber); }
+
+  .charts-grid { display: grid; grid-template-columns: 1.65fr 1fr; gap: 12px; margin: 12px 0; }
+  .card { background: var(--surface); border-radius: 12px; padding: 20px; border: 1px solid var(--border); }
+  .card-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 16px; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 12px; }
+  .legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); }
+  .legend-swatch { width: 9px; height: 9px; border-radius: 2px; }
+
+  .goal-section { margin-bottom: 16px; }
+  .goal-label { font-size: 11px; color: var(--muted); margin-bottom: 5px; }
+  .goal-track { height: 22px; background: var(--surface2); border-radius: 6px; overflow: hidden; position: relative; }
+  .goal-fill { height: 100%; border-radius: 6px; background: var(--green); display: flex; align-items: center; padding-left: 8px; font-size: 11px; font-weight: 600; color: #fff; transition: width 0.6s ease; }
+  .goal-fill.danger { background: var(--red); }
+  .stat-list { border-top: 1px solid var(--border); padding-top: 12px; }
+  .stat-row { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--border); }
+  .stat-row:last-child { border-bottom: none; }
+  .stat-label { font-size: 12px; color: var(--muted); }
+  .stat-val { font-size: 12px; font-weight: 600; color: var(--text); }
+
+  .bottom-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+
+  .bar-row { display: grid; grid-template-columns: 30px 1fr 60px; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .bar-day { font-size: 11px; color: var(--muted); text-align: right; }
+  .bar-track { height: 20px; background: var(--surface2); border-radius: 4px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 4px; }
+  .bar-amount { font-size: 11px; font-weight: 600; color: var(--text); text-align: right; }
+
+  .status-banner { padding: 10px 18px; border-radius: 8px; font-size: 12px; font-weight: 500; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+  .status-banner.behind { background: var(--red-light); color: #7a1f1f; }
+  .status-banner.ahead { background: var(--green-light); color: var(--green-dark); }
+
+  .spinner { display: none; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--green); border-radius: 50%; animation: spin 0.7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  @media (max-width: 700px) {
+    .kpi-row { grid-template-columns: 1fr 1fr; }
+    .charts-grid, .bottom-grid { grid-template-columns: 1fr; }
+    .main { padding: 16px 12px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <span class="logo">Fowhand <span>Furniture</span></span>
+    <span class="month-tag" id="currentMonth">Loading…</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:14px;">
+    <span class="last-updated" id="lastUpdated"></span>
+    <button class="refresh-btn" onclick="refresh()">
+      <span class="spinner" id="spinner"></span>
+      ↻ Refresh
+    </button>
+  </div>
+</div>
+
+<div class="main">
+  <div id="statusBanner" class="status-banner behind" style="display:none"></div>
+
+  <div class="section-title">Key performance indicators</div>
+  <div class="kpi-row">
+    <div class="kpi" id="kpi-mtd">
+      <div class="kpi-label">MTD subtotal</div>
+      <div class="kpi-value" id="v-mtd">—</div>
+      <div class="kpi-sub" id="s-mtd"></div>
+    </div>
+    <div class="kpi" id="kpi-gap">
+      <div class="kpi-label">MTD goal gap</div>
+      <div class="kpi-value" id="v-gap">—</div>
+      <div class="kpi-sub" id="s-gap"></div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">YTD subtotal</div>
+      <div class="kpi-value" id="v-ytd">—</div>
+      <div class="kpi-sub" id="s-ytd"></div>
+    </div>
+    <div class="kpi success">
+      <div class="kpi-label">YTD gross margin</div>
+      <div class="kpi-value" id="v-gm">—</div>
+      <div class="kpi-sub" id="s-gm"></div>
+    </div>
+  </div>
+  <div class="kpi-row">
+    <div class="kpi">
+      <div class="kpi-label">Avg ticket</div>
+      <div class="kpi-value" id="v-ticket">—</div>
+      <div class="kpi-sub">Per transaction</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Best single day</div>
+      <div class="kpi-value" id="v-bestday">—</div>
+      <div class="kpi-sub" id="s-bestday"></div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">YTD sales / sq ft</div>
+      <div class="kpi-value" id="v-sqft">—</div>
+      <div class="kpi-sub" id="s-sqft"></div>
+    </div>
+    <div class="kpi success">
+      <div class="kpi-label">GMROI (YTD)</div>
+      <div class="kpi-value" id="v-gmroi">—</div>
+      <div class="kpi-sub" id="s-gmroi"></div>
+    </div>
+  </div>
+
+  <div class="charts-grid">
+    <div class="card">
+      <div class="card-title">Monthly subtotal performance</div>
+      <div class="legend">
+        <div class="legend-item"><span class="legend-swatch" style="background:#1D9E75"></span>Subtotal</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:#D4537E"></span>Gross margin</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:#E24B4A;height:2px;border-radius:0;width:14px"></span>$160K goal</div>
+      </div>
+      <div style="position:relative;width:100%;height:230px;">
+        <canvas id="monthlyChart" role="img" aria-label="Monthly subtotal and gross margin bar chart"></canvas>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">MTD goal progress</div>
+      <div class="goal-section">
+        <div class="goal-label" id="goal-label">— % of $160K goal</div>
+        <div class="goal-track">
+          <div class="goal-fill" id="goal-fill" style="width:0%"></div>
+        </div>
+      </div>
+      <div class="stat-list">
+        <div class="stat-row"><span class="stat-label">MTD sales</span><span class="stat-val" id="r-mtdsales">—</span></div>
+        <div class="stat-row"><span class="stat-label">Delivery fees</span><span class="stat-val" id="r-delivery">—</span></div>
+        <div class="stat-row"><span class="stat-label">Deposits collected</span><span class="stat-val" id="r-deposits">—</span></div>
+        <div class="stat-row"><span class="stat-label">Deposit %</span><span class="stat-val" id="r-depPct">—</span></div>
+        <div class="stat-row"><span class="stat-label">Goal hit rate (YTD)</span><span class="stat-val" id="r-goalHit">—</span></div>
+        <div class="stat-row"><span class="stat-label">Avg daily subtotal</span><span class="stat-val" id="r-avgDaily">—</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bottom-grid">
+    <div class="card">
+      <div class="card-title">Avg sales by weekday</div>
+      <div id="weekdayBars"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Monthly gross margin $</div>
+      <div style="position:relative;width:100%;height:190px;">
+        <canvas id="gmChart" role="img" aria-label="Monthly gross margin bar chart"></canvas>
+      </div>
+      <div class="stat-list" style="margin-top:14px;">
+        <div class="stat-row"><span class="stat-label">YTD gross margin $</span><span class="stat-val" id="r-ytdGM">—</span></div>
+        <div class="stat-row"><span class="stat-label">YTD GM / sq ft</span><span class="stat-val" id="r-gmSqFt">—</span></div>
+        <div class="stat-row"><span class="stat-label">MTD gross margin $</span><span class="stat-val" id="r-mtdGM">—</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let monthlyChartInst = null;
+let gmChartInst = null;
+
+const $ = id => document.getElementById(id);
+const fmt = (n, dec=0) => n == null ? '—' : '$' + Math.round(n).toLocaleString();
+const fmtK = n => n >= 1000 ? '$' + (n/1000).toFixed(0) + 'K' : fmt(n);
+const pct = n => n == null ? '—' : (n * 100).toFixed(1) + '%';
+const mult = n => n == null ? '—' : n.toFixed(2) + '×';
+
+function renderMonthly(monthly) {
+  const active = monthly.filter(m => m.subtotal > 0);
+  const labels = active.map(m => {
+    const [y, mo] = m.month.split('-');
+    return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+mo-1];
+  });
+  const salesData = active.map(m => m.subtotal);
+  const gmData = active.map(m => m.grossMargin);
+  const goal = active.map(() => 160000);
+
+  const ctx = $('monthlyChart').getContext('2d');
+  if (monthlyChartInst) monthlyChartInst.destroy();
+  monthlyChartInst = new Chart(ctx, {
+    data: {
+      labels,
+      datasets: [
+        { type: 'bar', label: 'Subtotal', data: salesData, backgroundColor: '#1D9E75', borderRadius: 4, order: 2 },
+        { type: 'bar', label: 'Gross Margin', data: gmData, backgroundColor: '#D4537E', borderRadius: 4, order: 3 },
+        { type: 'line', label: 'Goal', data: goal, borderColor: '#E24B4A', borderDash: [5,4], borderWidth: 1.5, pointRadius: 0, fill: false, order: 1 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ' ' + fmtK(c.parsed.y) } } },
+      scales: {
+        x: { grid: { color: 'rgba(0,0,0,0.05)' }, ticks: { color: '#888', font: { size: 11 } } },
+        y: { grid: { color: 'rgba(0,0,0,0.05)' }, ticks: { color: '#888', font: { size: 11 }, callback: v => fmtK(v) } }
+      }
+    }
+  });
+}
+
+function renderGM(monthly) {
+  const active = monthly.filter(m => m.subtotal > 0);
+  const labels = active.map(m => {
+    const [,mo] = m.month.split('-');
+    return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+mo-1];
+  });
+  const gmData = active.map(m => m.grossMargin);
+  const colors = gmData.map((v, i) => i === gmData.length - 1 ? '#9FE1CB' : '#1D9E75');
+  const ctx = $('gmChart').getContext('2d');
+  if (gmChartInst) gmChartInst.destroy();
+  gmChartInst = new Chart(ctx, {
+    type: 'bar',
+    data: { labels, datasets: [{ data: gmData, backgroundColor: colors, borderRadius: 4 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ' ' + fmtK(c.parsed.y) } } },
+      scales: {
+        x: { grid: { color: 'rgba(0,0,0,0.05)' }, ticks: { color: '#888', font: { size: 11 } } },
+        y: { grid: { color: 'rgba(0,0,0,0.05)' }, ticks: { color: '#888', font: { size: 11 }, callback: v => fmtK(v) } }
+      }
+    }
+  });
+}
+
+function renderWeekdays(weekdays) {
+  const order = ['Sat','Fri','Tue','Mon','Thu','Wed','Sun'];
+  const sorted = order.map(d => weekdays.find(w => w.day === d) || { day: d, avgSales: 0 });
+  const max = Math.max(...sorted.map(w => w.avgSales));
+  const colors = { Sat: '#1D9E75', Fri: '#378ADD', Tue: '#378ADD', Mon: '#5DCAA5', Thu: '#9FE1CB', Wed: '#B4B2A9', Sun: '#D3D1C7' };
+  const container = $('weekdayBars');
+  container.innerHTML = '';
+  sorted.forEach(({ day, avgSales }) => {
+    const w = max > 0 ? Math.round((avgSales / max) * 100) : 0;
+    const row = document.createElement('div');
+    row.className = 'bar-row';
+    row.innerHTML = `
+      <div class="bar-day">${day}</div>
+      <div class="bar-track"><div class="bar-fill" style="width:${w}%;background:${colors[day]}"></div></div>
+      <div class="bar-amount">${avgSales > 0 ? '$' + (avgSales/1000).toFixed(1) + 'K' : '—'}</div>`;
+    container.appendChild(row);
+  });
+}
+
+function applyData({ data, lastUpdated }) {
+  const { kpis, monthly, weekdays } = data;
+  const monthlyGoal = kpis.monthlyGoal || 160000;
+
+  // Top bar
+  const mo = kpis.currentMonth;
+  $('currentMonth').textContent = mo || 'Current month';
+  $('lastUpdated').textContent = lastUpdated ? 'Updated ' + new Date(lastUpdated).toLocaleString() : '';
+
+  // Status banner
+  const gap = kpis.mtdGoalVariance || 0;
+  const banner = $('statusBanner');
+  banner.style.display = 'flex';
+  if (gap < 0) {
+    banner.className = 'status-banner behind';
+    banner.textContent = '⚠ MTD is behind goal by ' + fmt(Math.abs(gap));
+  } else {
+    banner.className = 'status-banner ahead';
+    banner.textContent = '✓ MTD is ahead of goal by ' + fmt(gap);
+  }
+
+  // KPIs
+  $('v-mtd').textContent = fmt(kpis.mtdSubtotal);
+  $('s-mtd').textContent = 'Goal: ' + fmt(monthlyGoal);
+  const attained = (kpis.mtdSubtotal / monthlyGoal * 100).toFixed(1);
+  $('v-gap').textContent = (gap >= 0 ? '+' : '') + fmt(gap);
+  $('s-gap').textContent = attained + '% attained';
+  const gapCard = $('kpi-gap');
+  gapCard.className = 'kpi ' + (gap < 0 ? 'danger' : 'success');
+  $('v-ytd').textContent = fmt(kpis.ytdSubtotal);
+  $('s-ytd').textContent = 'Since Jan ' + new Date().getFullYear();
+  const ytdGM = monthly.reduce((s, m) => s + (m.grossMargin || 0), 0);
+  $('v-gm').textContent = fmt(ytdGM);
+  const gmPct = kpis.ytdSubtotal ? (ytdGM / kpis.ytdSubtotal * 100).toFixed(1) : '—';
+  $('s-gm').textContent = gmPct + '% margin';
+  $('v-ticket').textContent = fmt(kpis.avgTicket);
+  $('v-bestday').textContent = fmt(kpis.bestDaySubtotal);
+  $('s-bestday').textContent = kpis.bestDayWeekday || '';
+  $('v-sqft').textContent = '$' + (kpis.salesPerSqFt || 0).toFixed(2);
+  $('s-sqft').textContent = (kpis.squareFeet || 17000).toLocaleString() + ' sq ft';
+  $('v-gmroi').textContent = mult(kpis.ytdGMROI);
+  $('s-gmroi').textContent = 'Avg inv. $' + ((kpis.avgInventoryCost || 0)/1000).toFixed(0) + 'K';
+
+  // Goal bar
+  const pctVal = Math.min(100, Math.round((kpis.mtdSubtotal / monthlyGoal) * 100));
+  const fill = $('goal-fill');
+  fill.style.width = pctVal + '%';
+  fill.textContent = pctVal + '%';
+  fill.className = 'goal-fill ' + (pctVal < 50 ? 'danger' : '');
+  $('goal-label').textContent = pctVal + '% of ' + fmt(monthlyGoal) + ' goal';
+
+  // Stat rows
+  const mtdData = monthly.find(m => m.month === (new Date().getFullYear() + '-' + String(new Date().getMonth()+1).padStart(2,'0'))) || {};
+  $('r-mtdsales').textContent = fmt(kpis.mtdSubtotal);
+  $('r-delivery').textContent = fmt(mtdData.deliveryFees);
+  $('r-deposits').textContent = fmt(mtdData.deposits);
+  $('r-depPct').textContent = pct(kpis.depositPct);
+  $('r-goalHit').textContent = pct(kpis.goalHitRate);
+  $('r-avgDaily').textContent = fmt(kpis.avgDailySubtotal);
+  $('r-ytdGM').textContent = fmt(ytdGM);
+  $('r-gmSqFt').textContent = '$' + (kpis.grossMarginPerSqFt || 0).toFixed(2);
+  $('r-mtdGM').textContent = fmt(kpis.mtdGrossMargin);
+
+  renderMonthly(monthly);
+  renderGM(monthly);
+  renderWeekdays(weekdays);
+}
+
+async function loadData() {
+  try {
+    const res = await fetch('/api/data');
+    if (!res.ok) throw new Error('Not ready');
+    const json = await res.json();
+    applyData(json);
+  } catch (e) {
+    console.error('Load failed:', e);
+  }
+}
+
+async function refresh() {
+  const spin = $('spinner');
+  spin.style.display = 'inline-block';
+  try {
+    await fetch('/api/refresh');
+    await loadData();
+  } finally {
+    spin.style.display = 'none';
+  }
+}
+
+loadData();
+// Auto-refresh page data every 5 minutes
+setInterval(loadData, 5 * 60 * 1000);
+</script>
+</body>
+</html>
