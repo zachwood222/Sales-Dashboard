@@ -60,6 +60,7 @@ table{width:100%;border-collapse:collapse;font-size:.86rem}th,td{padding:8px 4px
       <div class="card"><div class="label">MTD Goal Pace</div><div class="val" id="pace">—</div><div class="meter"><div id="paceFill" class="fill" style="width:0%"></div></div><div class="sub" id="paceSub"></div></div>
       <div class="card"><div class="label">YTD Revenue</div><div class="val" id="ytd">—</div><div class="sub" id="marginSub"></div></div>
       <div class="card"><div class="label">GMROI (YTD)</div><div class="val" id="gmroi">—</div><div class="sub" id="invSub"></div></div>
+      <div class="card"><div class="label">Last 7 Days Sales</div><div class="val" id="last7">—</div><div class="sub" id="last7Sub"></div></div>
     </div>
     <div class="grid two" style="margin-top:12px">
       <div class="card"><div class="label">Monthly Revenue vs Gross Margin</div><div style="height:300px;margin-top:8px"><canvas id="monthChart"></canvas></div></div>
@@ -110,60 +111,10 @@ const pct=n=>n==null?'—':(n*100).toFixed(1)+'%'; const num=n=>(+n||0);
 const mult=n=>n==null?'—':n.toFixed(2)+'×';
 const sum=(rows,key)=>rows.reduce((total,row)=>total+num(row?.[key]),0);
 const avg=(rows,key)=>rows.length?sum(rows,key)/rows.length:0;
-let dataset={monthly:[],daily:[],kpis:{}};
-
-function lastNDaysRows(rows,n){
- return [...(rows||[])].sort((a,b)=>String(a.date).localeCompare(String(b.date))).slice(-n);
-}
-
-function monthlyChart(monthly){
- const rows=[...(monthly||[])].sort((a,b)=>String(a.month).localeCompare(String(b.month)));
- const labels=rows.map(r=>r.month);
- const sales=rows.map(r=>num(r.subtotal));
- const margin=rows.map(r=>num(r.grossMargin));
- const ctx=$('monthChart');
- if(chart) chart.destroy();
- chart=new Chart(ctx,{type:'bar',data:{labels,datasets:[{label:'Subtotal',data:sales,backgroundColor:'#6fa8ff'},{label:'Gross Margin',data:margin,backgroundColor:'#38d39f'}]},options:{responsive:true,maintainAspectRatio:false}});
-}
-
-function renderDailyTable(){
- const start=$('dailyStart')?.value||'';
- const end=$('dailyEnd')?.value||'';
- const weekday=$('weekdayFilter')?.value||'';
- const tender=$('tenderFilter')?.value||'all';
- let rows=[...(dataset.daily||[])].sort((a,b)=>String(a.date).localeCompare(String(b.date)));
- if(start) rows=rows.filter(r=>String(r.date)>=start);
- if(end) rows=rows.filter(r=>String(r.date)<=end);
- if(weekday) rows=rows.filter(r=>String(r.weekday||'')===weekday);
- if(tender!='all') rows=rows.filter(r=>num(r[tender])>0);
- let html='<thead><tr><th>Date</th><th>Weekday</th><th>Subtotal</th><th>Gross Margin</th><th>Deposits</th><th>Cash</th><th>Check</th><th>Card</th></tr></thead><tbody>';
- rows.forEach(r=>html+='<tr><td>'+r.date+'</td><td>'+(r.weekday||'')+'</td><td>'+money(num(r.subtotal))+'</td><td>'+money(num(r.grossMarginDollar||r.grossMargin))+'</td><td>'+money(num(r.deposits))+'</td><td>'+money(num(r.cash))+'</td><td>'+money(num(r.check))+'</td><td>'+money(num(r.card))+'</td></tr>');
- html+='</tbody>';
- $('dailyTable').innerHTML=html;
- $('dailyCount').textContent=rows.length+' days';
- window._dailyExport=rows;
-}
-
-function renderWeekdayFilter(){
- const days=[...new Set((dataset.daily||[]).map(r=>r.weekday).filter(Boolean))];
- const el=$('weekdayFilter');
- if(!el) return;
- el.innerHTML='<option value="">All</option>'+days.map(d=>'<option value="'+d+'">'+d+'</option>').join('');
-}
-
-function exportCsv(type){
- const rows=type==='monthly'?(window._monthlyExport||[]):(window._dailyExport||[]);
- if(!rows.length) return;
- const cols=Object.keys(rows[0]);
- const esc=v=>'"'+String(v??'').replaceAll('"','""')+'"';
- const csv=[cols.join(','),...rows.map(r=>cols.map(c=>esc(r[c])).join(','))].join('\n');
- const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
- const a=document.createElement('a');
- a.href=URL.createObjectURL(blob);
- a.download=type+'-'+new Date().toISOString().slice(0,10)+'.csv';
- a.click();
- URL.revokeObjectURL(a.href);
-}
+const lastNDaysRows=(rows,days)=>{
+ const sorted=[...(rows||[])].sort((a,b)=>String(a?.date||'').localeCompare(String(b?.date||'')));
+ return sorted.slice(-Math.max(0,days));
+};
 
 function renderMonthlyTable(){
  const rows=[...dataset.monthly].sort((a,b)=>a.month.localeCompare(b.month)).map(r=>({month:r.month,subtotal:num(r.subtotal),grossMargin:num(r.grossMargin),gmPct:num(r.grossMarginPct),deposits:num(r.deposits),mom:r.subtotalPrev?((num(r.subtotal)-num(r.subtotalPrev))/num(r.subtotalPrev)):null}));
@@ -191,7 +142,7 @@ function apply(json){
  $('ticket').textContent=money(kpis.avgTicket); $('deposit').textContent=pct(kpis.depositPct); $('sqft').textContent='$'+(+kpis.salesPerSqFt||0).toFixed(2); $('best').textContent=money(kpis.bestDaySubtotal)+' ('+(kpis.bestDayWeekday||'')+')'; $('dailyGoal').textContent=money(kpis.dailyGoal); $('monthlyGoal').textContent=money(kpis.monthlyGoal);
  const last7=lastNDaysRows(daily,7), prev7=[...daily].sort((a,b)=>a.date.localeCompare(b.date)).slice(-14,-7); const last7Sales=sum(last7,'subtotal'), prev7Sales=sum(prev7,'subtotal');
  const ch=prev7Sales?((last7Sales-prev7Sales)/prev7Sales):0; $('last7').textContent=money(last7Sales); $('last7Sub').textContent=(ch>=0?'+':'')+(ch*100).toFixed(1)+'% vs prior 7 days';
- const last30=lastNDaysRows(daily,30); const cash=sum(last30,'cash'), card=sum(last30,'card'), total=Math.max(1,cash+card); $('mix').textContent=pct(card/total)+' card'; $('mixSub').textContent=money(cash)+' cash / '+money(card)+' card';
+ const last30=lastNDaysRows(daily,30); const cash=sum(last30,'cash'), card=sum(last30,'card'), total=Math.max(1,cash+card); $('mixVal').textContent=pct(card/total)+' card'; $('mixSub').textContent=money(cash)+' cash / '+money(card)+' card';
  const tax=sum(last30,'stateTax')+sum(last30,'cityTax'), del=sum(last30,'deliveryFee'); $('tax').textContent=money(tax+del); $('taxSub').textContent='Taxes '+money(tax)+' · Delivery '+money(del);
  monthlyChart(monthly);
  renderWeekdayFilter();
