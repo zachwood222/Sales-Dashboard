@@ -76,6 +76,17 @@ table{width:100%;border-collapse:collapse;font-size:.86rem}th,td{padding:10px 6p
       <div class="card"><div class="label">Owner Snapshot</div><table>
         <tr><th>Metric</th><th>Value</th></tr><tr><td>Average Ticket</td><td id="ticket">—</td></tr><tr><td>Deposit Capture Rate</td><td id="deposit">—</td></tr><tr><td>Sales per Sq Ft</td><td id="sqft">—</td></tr><tr><td>Best Sales Day</td><td id="best">—</td></tr><tr><td>Daily Goal</td><td id="dailyGoal">—</td></tr><tr><td>Monthly Goal</td><td id="monthlyGoal">—</td></tr>
       </table></div>
+
+    <div class="grid three" style="margin-top:12px">
+      <div class="card"><div class="label">Total Profit by Month</div><div style="height:280px"><canvas id="profitMonthChart"></canvas></div></div>
+      <div class="card"><div class="label">Product Quantity by Payment Mode</div><div style="height:280px"><canvas id="qtyModeDonut"></canvas></div></div>
+      <div class="card"><div class="label">Profitability Analysis</div><table>
+        <tr><th>Metric</th><th>Value</th></tr>
+        <tr><td>Total Profit (YTD)</td><td id="profitYtd">—</td></tr>
+        <tr><td>Average Monthly Profit</td><td id="profitAvgMonth">—</td></tr>
+        <tr><td>Best Profit Month</td><td id="profitBestMonth">—</td></tr>
+        <tr><td>Profit Margin (YTD)</td><td id="profitMarginYtd">—</td></tr>
+      </table></div>
     </div>
   </section>
 
@@ -161,7 +172,9 @@ function apply(json){
  renderWeekdayFilter();
  renderDailyTable();
  renderMonthlyTable();
+ renderProfitabilityWidgets();
 }
+
 function initTabs(){
  document.querySelectorAll('.tab-btn').forEach(btn=>{
   btn.addEventListener('click',()=>{
@@ -231,6 +244,35 @@ function renderMixCharts(rows){
  if(pie){window._mixPie=new Chart(pie,{type:'doughnut',data:{labels:['Cash','Check','Card'],datasets:[{data:[cash,check,card],backgroundColor:['#38d39f','#f9c74f','#6fa8ff']}]},options:{plugins:{legend:{labels:{color:'#e7ecff'}}}}});}
  if(bar){window._mixBar=new Chart(bar,{type:'bar',data:{labels:last.map(r=>r.date),datasets:[{label:'Cash',data:last.map(r=>num(r.cash)),backgroundColor:'#38d39f'},{label:'Check',data:last.map(r=>num(r.deposits)),backgroundColor:'#f9c74f'},{label:'Card',data:last.map(r=>num(r.card)),backgroundColor:'#6fa8ff'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#e7ecff'}}},scales:{x:{ticks:{color:'#9aa7ce'}},y:{ticks:{color:'#9aa7ce'}}}}});}
 }
+
+function renderProfitabilityWidgets(){
+ const monthly=[...(dataset.monthly||[])].sort((a,b)=>String(a.month).localeCompare(String(b.month)));
+ const labels=monthly.map(r=>r.month);
+ const profits=monthly.map(r=>num(r.grossMargin));
+ if(window._profitMonthChart) window._profitMonthChart.destroy();
+ const profitCtx=$('profitMonthChart')?.getContext('2d');
+ if(profitCtx){
+  window._profitMonthChart=new Chart(profitCtx,{type:'bar',data:{labels,datasets:[{label:'Total Profit',data:profits,backgroundColor:'rgba(79,70,229,.6)'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#e7ecff'}}},scales:{x:{ticks:{color:'#9aa7ce'}},y:{ticks:{color:'#9aa7ce'}}}}});
+ }
+ const qtyRows=dataset.daily||[];
+ const qtyCash=qtyRows.reduce((a,r)=>a+(num(r.cash)>0?1:0),0);
+ const qtyCheck=qtyRows.reduce((a,r)=>a+(num(r.deposits)>0?1:0),0);
+ const qtyCard=qtyRows.reduce((a,r)=>a+(num(r.card)>0?1:0),0);
+ if(window._qtyModeDonut) window._qtyModeDonut.destroy();
+ const qtyCtx=$('qtyModeDonut')?.getContext('2d');
+ if(qtyCtx){
+  window._qtyModeDonut=new Chart(qtyCtx,{type:'doughnut',data:{labels:['Cash','Check','Card'],datasets:[{data:[qtyCash,qtyCheck,qtyCard],backgroundColor:['#38d39f','#f9c74f','#6fa8ff']}]},options:{plugins:{legend:{labels:{color:'#e7ecff'}}}}});
+ }
+ const totalProfit=sum(monthly,'grossMargin');
+ const avgProfit=monthly.length?totalProfit/monthly.length:0;
+ const best=monthly.reduce((top,row)=>num(row.grossMargin)>num(top.grossMargin)?row:top,monthly[0]||{});
+ const totalRevenue=sum(monthly,'subtotal');
+ $('profitYtd').textContent=money(totalProfit);
+ $('profitAvgMonth').textContent=money(avgProfit);
+ $('profitBestMonth').textContent=best.month?`${best.month} (${money(num(best.grossMargin))})`:'—';
+ $('profitMarginYtd').textContent=totalRevenue?pct(totalProfit/totalRevenue):'—';
+}
+
 function exportCsv(type){
  const rows=type==='monthly'?(window._monthlyExport||[]):(window._dailyExport||[]);
  if(!rows.length)return;
