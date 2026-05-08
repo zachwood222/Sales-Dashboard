@@ -6,13 +6,13 @@
 <title>Furniture Sales Command Center</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
-:root{--bg:#0b1020;--card:#111a31;--card2:#15213d;--text:#e7ecff;--muted:#9aa7ce;--line:rgba(255,255,255,.08);--good:#38d39f;--bad:#ff6b7a;--warn:#f9c74f;--accent:#6fa8ff;}
+:root{--bg:#0b1020;--card:#111a31;--card2:#15213d;--text:#e7ecff;--muted:#9aa7ce;--line:rgba(255,255,255,.08);--good:#38d39f;--bad:#ff6b7a;--warn:#f9c74f;--accent:#6fa8ff}
 *{box-sizing:border-box}body{margin:0;font-family:Inter,Segoe UI,system-ui,sans-serif;background:radial-gradient(circle at 15% -20%,#243a6b 0,#0b1020 40%);color:var(--text)}
-.wrap{max-width:1200px;margin:0 auto;padding:20px}
-.top{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}
+.wrap{max-width:1250px;margin:0 auto;padding:20px}.top{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
 .brand h1{font-size:1.2rem;margin:0}.brand p{margin:4px 0 0;color:var(--muted);font-size:.88rem}
 .pill{background:var(--card2);border:1px solid var(--line);border-radius:999px;padding:7px 12px;color:var(--muted);font-size:.8rem}
 .btn{background:linear-gradient(135deg,#3d7dff,#6b9fff);border:none;color:#fff;padding:10px 14px;border-radius:10px;cursor:pointer;font-weight:600}
+.btn.alt{background:#273862;border:1px solid var(--line)}
 .grid{display:grid;gap:12px}.kpis{grid-template-columns:repeat(4,1fr)}.two{grid-template-columns:2fr 1fr}.three{grid-template-columns:repeat(3,1fr)}
 .card{background:linear-gradient(160deg,var(--card),#0f1830);border:1px solid var(--line);border-radius:14px;padding:14px}
 .label{font-size:.75rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
@@ -21,6 +21,10 @@
 .meter{height:10px;background:#0b1122;border-radius:999px;overflow:hidden;border:1px solid var(--line);margin-top:10px}
 .fill{height:100%;background:linear-gradient(90deg,#3f8cff,#38d39f)}
 table{width:100%;border-collapse:collapse;font-size:.86rem}th,td{padding:8px 4px;border-bottom:1px solid var(--line)}th{color:var(--muted);text-align:left}
+.controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.select,.file{background:var(--card2);border:1px solid var(--line);border-radius:8px;color:var(--text);padding:8px}
+.note{font-size:.78rem;color:var(--muted);margin-top:8px}
+#uploadStatus{font-size:.78rem;color:var(--muted);margin-top:8px;max-width:500px}
 @media(max-width:900px){.kpis,.two,.three{grid-template-columns:1fr}}
 </style>
 </head>
@@ -28,56 +32,99 @@ table{width:100%;border-collapse:collapse;font-size:.86rem}th,td{padding:8px 4px
 <div class="wrap">
   <div class="top">
     <div class="brand"><h1>Furniture Sales Command Center</h1><p id="updated">Loading latest workbook...</p></div>
-    <div style="display:flex;gap:8px;align-items:center"><span class="pill" id="monthTag">Current Month</span><button class="btn" onclick="refreshData()">↻ Sync from Google</button></div>
-  </div>
-
-  <div class="grid kpis">
-    <div class="card"><div class="label">MTD Revenue</div><div class="val" id="mtd">—</div><div class="sub" id="mtdSub"></div></div>
-    <div class="card"><div class="label">MTD Goal Pace</div><div class="val" id="pace">—</div><div class="meter"><div id="paceFill" class="fill" style="width:0%"></div></div><div class="sub" id="paceSub"></div></div>
-    <div class="card"><div class="label">YTD Revenue</div><div class="val" id="ytd">—</div><div class="sub" id="marginSub"></div></div>
-    <div class="card"><div class="label">GMROI (YTD)</div><div class="val" id="gmroi">—</div><div class="sub" id="invSub"></div></div>
-  </div>
-
-  <div class="grid two" style="margin-top:12px">
-    <div class="card"><div class="label">Monthly Revenue vs Gross Margin</div><div style="height:300px;margin-top:8px"><canvas id="monthChart"></canvas></div></div>
-    <div class="card"><div class="label">Owner Snapshot</div>
-      <table>
-        <tr><th>Metric</th><th>Value</th></tr>
-        <tr><td>Average Ticket</td><td id="ticket">—</td></tr>
-        <tr><td>Deposit Capture Rate</td><td id="deposit">—</td></tr>
-        <tr><td>Sales per Sq Ft</td><td id="sqft">—</td></tr>
-        <tr><td>Best Sales Day</td><td id="best">—</td></tr>
-        <tr><td>Daily Goal</td><td id="dailyGoal">—</td></tr>
-        <tr><td>Monthly Goal</td><td id="monthlyGoal">—</td></tr>
-      </table>
+    <div class="controls">
+      <span class="pill" id="monthTag">Current Month</span>
+      <select class="select" id="dataMode">
+        <option value="google">Google only</option>
+        <option value="upload">Upload only</option>
+        <option value="merge">Merge both</option>
+      </select>
+      <button class="btn" onclick="refreshData()">↻ Sync from Google</button>
+      <input class="file" type="file" id="ticketFile" accept=".pdf,application/pdf" />
+      <button class="btn" onclick="uploadTicketPdf()">Upload Ticket PDF</button>
     </div>
   </div>
+  <div id="uploadStatus">No upload attempted yet.</div>
+  <div class="note">Daily Auto Upload note: if enabled, this usually means a watched cloud folder auto-triggers ingestion when a new PDF appears. Otherwise, you manually upload a new PDF each day.</div>
 
-  <div class="grid three" style="margin-top:12px">
-    <div class="card"><div class="label">Recent 7-Day Performance</div><div class="val" id="last7">—</div><div class="sub" id="last7Sub"></div></div>
-    <div class="card"><div class="label">Payment Mix (Last 30 Days)</div><div class="val" id="mix">—</div><div class="sub" id="mixSub"></div></div>
-    <div class="card"><div class="label">Tax + Delivery (Last 30 Days)</div><div class="val" id="tax">—</div><div class="sub" id="taxSub"></div></div>
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="overview">Overview</button>
+    <button class="tab-btn" data-tab="daily">Daily Table</button>
+    <button class="tab-btn" data-tab="monthly">Monthly Table</button>
+    <button class="tab-btn" data-tab="mix">Payment Mix</button>
   </div>
+
+  <section id="overview" class="tab active">
+    <div class="grid kpis">
+      <div class="card"><div class="label">MTD Revenue</div><div class="val" id="mtd">—</div><div class="sub" id="mtdSub"></div></div>
+      <div class="card"><div class="label">MTD Goal Pace</div><div class="val" id="pace">—</div><div class="meter"><div id="paceFill" class="fill" style="width:0%"></div></div><div class="sub" id="paceSub"></div></div>
+      <div class="card"><div class="label">YTD Revenue</div><div class="val" id="ytd">—</div><div class="sub" id="marginSub"></div></div>
+      <div class="card"><div class="label">GMROI (YTD)</div><div class="val" id="gmroi">—</div><div class="sub" id="invSub"></div></div>
+    </div>
+    <div class="grid two" style="margin-top:12px">
+      <div class="card"><div class="label">Monthly Revenue vs Gross Margin</div><div style="height:300px;margin-top:8px"><canvas id="monthChart"></canvas></div></div>
+      <div class="card"><div class="label">Owner Snapshot</div><table>
+        <tr><th>Metric</th><th>Value</th></tr><tr><td>Average Ticket</td><td id="ticket">—</td></tr><tr><td>Deposit Capture Rate</td><td id="deposit">—</td></tr><tr><td>Sales per Sq Ft</td><td id="sqft">—</td></tr><tr><td>Best Sales Day</td><td id="best">—</td></tr><tr><td>Daily Goal</td><td id="dailyGoal">—</td></tr><tr><td>Monthly Goal</td><td id="monthlyGoal">—</td></tr>
+      </table></div>
+    </div>
+  </section>
+
+  <section id="daily" class="tab">
+    <div class="card">
+      <div class="filters">
+        <div class="field"><label>Start Date</label><input type="date" id="dailyStart"></div>
+        <div class="field"><label>End Date</label><input type="date" id="dailyEnd"></div>
+        <div class="field"><label>Weekday</label><select id="weekdayFilter"><option value="">All</option></select></div>
+        <div class="field"><label>Tender Type</label><select id="tenderFilter"><option value="all">All</option><option value="cash">Cash</option><option value="check">Check</option><option value="card">Card</option></select></div>
+        <button class="btn alt" onclick="renderDailyTable()">Apply</button>
+        <button class="btn" onclick="exportCsv('daily')">Export CSV</button>
+      </div>
+      <div class="table-wrap" style="margin-top:12px">
+        <table id="dailyTable"></table>
+      </div>
+      <div class="small-note" id="dailyCount"></div>
+    </div>
+  </section>
+
+  <section id="monthly" class="tab">
+    <div class="card">
+      <div class="filters"><button class="btn" onclick="exportCsv('monthly')">Export CSV</button></div>
+      <div class="table-wrap" style="margin-top:12px"><table id="monthlyTable"></table></div>
+      <div class="small-note" id="monthlyCount"></div>
+    </div>
+  </section>
+
+  <section id="mix" class="tab">
+    <div class="grid three">
+      <div class="card"><div class="label">Last 30 Days Mix</div><div style="height:280px"><canvas id="mixPie"></canvas></div></div>
+      <div class="card"><div class="label">Cash vs Check vs Card (Daily)</div><div style="height:280px"><canvas id="mixBar"></canvas></div></div>
+      <div class="card"><div class="label">Payment Mix (Last 30 Days)</div><div class="val" id="mixVal">—</div><div class="sub" id="mixSub"></div><div class="val" id="tax">—</div><div class="sub" id="taxSub"></div></div>
+    </div>
+  </section>
 </div>
 <script>
 const $=id=>document.getElementById(id); let chart;
+const MODE_KEY='salesDashboard.dataMode';
 const money=n=>n==null?'—':new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(n);
-const pct=n=>n==null?'—':(n*100).toFixed(1)+'%';
+const pct=n=>n==null?'—':(n*100).toFixed(1)+'%'; const num=n=>(+n||0);
 const mult=n=>n==null?'—':n.toFixed(2)+'×';
-const short=n=>n==null?'—': '$'+(n/1000).toFixed(1)+'K';
 
-function lastNDaysRows(rows,n){return [...rows].sort((a,b)=>a.date.localeCompare(b.date)).slice(-n)}
-function sum(rows,key){return rows.reduce((s,r)=>s+(+r[key]||0),0)}
-function monthlyChart(monthly){
- const data=monthly.filter(m=>m.subtotal>0);
- const labels=data.map(m=>m.month.slice(5));
- if(chart) chart.destroy();
- chart=new Chart($('monthChart'),{data:{labels,datasets:[{type:'bar',label:'Revenue',data:data.map(m=>m.subtotal),backgroundColor:'#6fa8ff',borderRadius:6},{type:'line',label:'Gross Margin',data:data.map(m=>m.grossMargin),borderColor:'#38d39f',pointRadius:3,tension:.25}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#cdd7ff'}}},scales:{x:{ticks:{color:'#9aa7ce'},grid:{color:'rgba(255,255,255,.05)'}},y:{ticks:{color:'#9aa7ce'},grid:{color:'rgba(255,255,255,.06)'}}}}});
+function renderMonthlyTable(){
+ const rows=[...dataset.monthly].sort((a,b)=>a.month.localeCompare(b.month)).map(r=>({month:r.month,subtotal:num(r.subtotal),grossMargin:num(r.grossMargin),gmPct:num(r.grossMarginPct),deposits:num(r.deposits),mom:r.subtotalPrev?((num(r.subtotal)-num(r.subtotalPrev))/num(r.subtotalPrev)):null}));
+ let html='<thead><tr><th>Month</th><th>Subtotal</th><th>Gross Margin</th><th>GM%</th><th>Deposits</th><th>MoM Change</th></tr></thead><tbody>';
+ rows.forEach(r=>html+='<tr><td>'+r.month+'</td><td>'+money(r.subtotal)+'</td><td>'+money(r.grossMargin)+'</td><td>'+pct(r.gmPct)+'</td><td>'+money(r.deposits)+'</td><td>'+(r.mom==null?'—':pct(r.mom))+'</td></tr>');
+ html+='</tbody><tfoot><tr><td>Totals / Avg</td><td>'+money(sum(rows,'subtotal'))+'</td><td>'+money(sum(rows,'grossMargin'))+'</td><td>'+pct(avg(rows,'gmPct'))+'</td><td>'+money(sum(rows,'deposits'))+'</td><td>'+pct(avg(rows.filter(r=>r.mom!=null),'mom'))+'</td></tr></tfoot>';
+ $('monthlyTable').innerHTML=html; $('monthlyCount').textContent=`${rows.length} months`; window._monthlyExport=rows;
 }
+function modeLabel(v){return v==='upload'?'Upload only':v==='merge'?'Merge both':'Google only'}
+function readMode(){return localStorage.getItem(MODE_KEY)||'google'}
+function saveMode(mode){localStorage.setItem(MODE_KEY,mode)}
+function fmtTs(ts){return ts?new Date(ts).toLocaleString():'—'}
 
 function apply(json){
  const {kpis,monthly,daily}=json.data;
- $('updated').textContent = json.lastUpdated ? 'Last sync: '+new Date(json.lastUpdated).toLocaleString() : 'Awaiting data';
+ const mode = readMode();
+ $('updated').textContent = `Mode: ${modeLabel(mode)} · Last Google sync: ${fmtTs(json.lastGoogleSync||json.lastUpdated)} · Last upload ingest: ${fmtTs(json.lastUploadIngest)}`;
  $('monthTag').textContent = kpis.currentMonth || 'Current Month';
  const ytdGM = sum(monthly,'grossMargin');
  $('mtd').textContent = money(kpis.mtdSubtotal); $('mtdSub').textContent='Goal '+money(kpis.monthlyGoal);
@@ -93,6 +140,23 @@ function apply(json){
 }
 async function load(){const r=await fetch('/api/data'); if(!r.ok) return; apply(await r.json())}
 async function refreshData(){await fetch('/api/refresh'); await load();}
+async function uploadTicketPdf(){
+ const file=$('ticketFile').files[0];
+ if(!file){$('uploadStatus').textContent='Select a PDF file before uploading.';return;}
+ $('uploadStatus').textContent='Uploading and ingesting...';
+ try{
+  const r=await fetch('/api/upload-ticket',{method:'POST',headers:{'Content-Type':'application/pdf'},body:file});
+  const json=await r.json();
+  if(!r.ok) throw new Error(json.error||'Upload failed');
+  const totals=json.parsedTotals?` Totals: subtotal ${money(json.parsedTotals.subtotal)}, tax ${money(json.parsedTotals.tax)}, delivery ${money(json.parsedTotals.delivery)}.`:'';
+  const errs=(json.errors&&json.errors.length)?` Errors: ${json.errors.join('; ')}`:'';
+  $('uploadStatus').textContent=`Ingest complete at ${fmtTs(json.ingestedAt||json.lastUploadIngest)}.${totals}${errs}`;
+  await load();
+ }catch(e){$('uploadStatus').textContent='Upload ingest failed: '+e.message;}
+}
+
+$('dataMode').value = readMode();
+$('dataMode').addEventListener('change', e=>{ saveMode(e.target.value); load(); });
 load(); setInterval(load,5*60*1000);
 </script>
 </body>
