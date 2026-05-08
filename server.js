@@ -12,6 +12,8 @@ const LOCAL_FILE = path.join(__dirname, 'data', 'fowhand.xlsm');
 
 let cachedData = null;
 let lastUpdated = null;
+let lastGoogleSync = null;
+let lastUploadIngest = null;
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -143,6 +145,7 @@ async function refreshData() {
     await downloadFile();
     cachedData = parseWorkbook();
     lastUpdated = new Date().toISOString();
+    lastGoogleSync = lastUpdated;
     console.log('Data refreshed at', lastUpdated);
   } catch (err) {
     console.error('Refresh failed:', err.message);
@@ -152,15 +155,35 @@ async function refreshData() {
 // ── Routes ────────────────────────────────────────────────────────────────────
 
 app.use(express.static(path.join(__dirname, 'public')));
+app.use('/api/upload-ticket', express.raw({ type: ['application/pdf'], limit: '15mb' }));
 
 app.get('/api/data', (req, res) => {
   if (!cachedData) return res.status(503).json({ error: 'Data not loaded yet' });
-  res.json({ data: cachedData, lastUpdated });
+  res.json({ data: cachedData, lastUpdated, lastGoogleSync, lastUploadIngest });
 });
 
 app.get('/api/refresh', async (req, res) => {
   await refreshData();
-  res.json({ ok: true, lastUpdated });
+  res.json({ ok: true, lastUpdated, lastGoogleSync, lastUploadIngest });
+});
+
+app.post('/api/upload-ticket', (req, res) => {
+  try {
+    const isPdf = (req.headers['content-type'] || '').includes('application/pdf');
+    if (!isPdf || !req.body || !req.body.length) {
+      return res.status(400).json({ error: 'Expected a PDF upload body.' });
+    }
+    lastUploadIngest = new Date().toISOString();
+    return res.json({
+      ok: true,
+      ingestedAt: lastUploadIngest,
+      lastUploadIngest,
+      parsedTotals: { subtotal: 0, tax: 0, delivery: 0 },
+      errors: ['PDF parser not configured on server yet; showing placeholder totals.']
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
 });
 
 app.get('/health', (req, res) => res.json({ ok: true }));
