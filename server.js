@@ -40,6 +40,9 @@ function saveUploadStore() {
 }
 let lastGoogleSync = null;
 let lastUploadIngest = null;
+let refreshInFlight = null;
+let lastRefreshAtMs = 0;
+const MIN_REFRESH_INTERVAL_MS = Number(process.env.MIN_REFRESH_INTERVAL_MS || 5 * 60 * 1000);
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -458,16 +461,31 @@ function buildPeriods(dailyRows, monthlyRows) {
   return { today, yesterday, thisMonth, lastMonth, ytd };
 }
 
-async function refreshData() {
-  try {
-    await downloadFile();
-    cachedData = parseWorkbook();
-    lastUpdated = new Date().toISOString();
-    lastGoogleSync = lastUpdated;
-    console.log('Data refreshed at', lastUpdated);
-  } catch (err) {
-    console.error('Refresh failed:', err.message);
+async function refreshData(options = {}) {
+  const { force = false, reason = 'unknown' } = options;
+  const now = Date.now();
+
+  if (refreshInFlight) return refreshInFlight;
+  if (!force && lastRefreshAtMs && now - lastRefreshAtMs < MIN_REFRESH_INTERVAL_MS) {
+    return;
   }
+
+  refreshInFlight = (async () => {
+    try {
+      await downloadFile();
+      cachedData = parseWorkbook();
+      lastUpdated = new Date().toISOString();
+      lastGoogleSync = lastUpdated;
+      lastRefreshAtMs = Date.now();
+      console.log(`Data refreshed at ${lastUpdated} (reason: ${reason})`);
+    } catch (err) {
+      console.error('Refresh failed:', err.message);
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+
+  return refreshInFlight;
 }
 
 app.use(express.static(path.join(__dirname, 'public')));
@@ -485,13 +503,13 @@ app.post('/api/upload-daily', async (req, res) => {
   uploadStore.records = mergeDailySources(uploadStore.records, normalized, { policy: 'upload_wins' });
   uploadStore.lastUploadAt = new Date().toISOString();
   saveUploadStore();
-  await refreshData();
+  await refreshData({ force: true, reason: 'upload_daily' });
   res.json({ ok: true, uploaded: normalized.length, lastUploadAt: uploadStore.lastUploadAt });
   res.json({ data: cachedData, lastUpdated, lastGoogleSync, lastUploadIngest });
 });
 
 app.get('/api/refresh', async (req, res) => {
-  await refreshData();
+  await refreshData({ force: true, reason: 'api_refresh' });
   res.json({ ok: true, lastUpdated, lastGoogleSync, lastUploadIngest });
 });
 
@@ -574,11 +592,11 @@ app.post('/api/upload-ticket', (req, res) => {
 // ── Cron: refresh every day at 6 AM server time ───────────────────────────────
 cron.schedule('0 6 * * *', () => {
   console.log('Cron triggered — refreshing data');
-  refreshData();
+  refreshData({ force: true, reason: 'cron' });
 });
 
 app.listen(PORT, async () => {
   console.log(`Server listening on port ${PORT}`);
   loadUploadStore();
-  await refreshData();
+  await refreshData({ force: true, reason: 'startup' });
 });
