@@ -16,9 +16,15 @@ let lastUpdated = null;
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 function toDirectDownload(url) {
-  // Google Drive: convert share link → direct download
+  // Google Sheets file links: export to XLSX
+  const gsheet = url.match(/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+  if (gsheet) return `https://docs.google.com/spreadsheets/d/${gsheet[1]}/export?format=xlsx`;
+
+  // Google Drive file links: convert share link → direct download
   const gdrive = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
-  if (gdrive) return `https://drive.google.com/uc?export=download&id=${gdrive[1]}`;
+  if (gdrive && url.includes('drive.google.com')) {
+    return `https://drive.google.com/uc?export=download&id=${gdrive[1]}`;
+  }
 
   // Dropbox: swap ?dl=0 → ?dl=1
   if (url.includes('dropbox.com')) return url.replace(/[?&]dl=0/, '').replace(/[?&]dl=1/, '') + '?dl=1';
