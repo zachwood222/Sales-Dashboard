@@ -5,8 +5,6 @@ const cron = require('node-cron');
 const path = require('path');
 const fs = require('fs');
 const { mergeDailySources, buildSourceStats } = require('./src/data/mergeSources');
-const multer = require('multer');
-const { uploadMiddleware, ingestTicketUpload, MAX_FILE_SIZE_BYTES } = require('./src/ingest/ticketUpload');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -524,7 +522,6 @@ app.post('/api/upload-daily', async (req, res) => {
   saveUploadStore();
   await refreshData({ force: true, reason: 'upload_daily' });
   res.json({ ok: true, uploaded: normalized.length, lastUploadAt: uploadStore.lastUploadAt });
-  res.json({ data: cachedData, lastUpdated, lastGoogleSync, lastUploadIngest });
 });
 
 app.get('/api/refresh', async (req, res) => {
@@ -554,58 +551,6 @@ app.post('/api/upload-ticket', (req, res) => {
 app.get('/health', (req, res) => res.json({ ok: true }));
 
 
-app.post('/api/upload-ticket', (req, res) => {
-  uploadMiddleware(req, res, err => {
-    if (err) {
-      if (err instanceof multer.MulterError) {
-        if (err.code === 'LIMIT_FILE_SIZE') {
-          return res.status(413).json({
-            error: {
-              code: 'FILE_TOO_LARGE',
-              message: `File exceeds size limit of ${MAX_FILE_SIZE_BYTES} bytes`,
-            },
-          });
-        }
-
-        return res.status(400).json({
-          error: {
-            code: 'MALFORMED_MULTIPART',
-            message: err.message,
-          },
-        });
-      }
-
-      if (err.code === 'UNSUPPORTED_FILE_TYPE') {
-        return res.status(415).json({
-          error: {
-            code: err.code,
-            message: err.message,
-            acceptedTypes: ['application/pdf'],
-          },
-        });
-      }
-
-      return res.status(400).json({
-        error: {
-          code: 'MALFORMED_PAYLOAD',
-          message: err.message || 'Unable to process upload payload.',
-        },
-      });
-    }
-
-    if (!req.file) {
-      return res.status(400).json({
-        error: {
-          code: 'MISSING_FILE',
-          message: "Expected 'ticket' file field in multipart/form-data payload.",
-        },
-      });
-    }
-
-    const result = ingestTicketUpload(req.file);
-    return res.status(202).json({ upload: result });
-  });
-});
 
 
 // ── Cron: refresh every day at 6 AM server time ───────────────────────────────
