@@ -6,13 +6,13 @@
 <title>Furniture Sales Command Center</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
-:root{--bg:#0b1020;--card:#111a31;--card2:#15213d;--text:#e7ecff;--muted:#9aa7ce;--line:rgba(255,255,255,.08);--good:#38d39f;--bad:#ff6b7a;--warn:#f9c74f;--accent:#6fa8ff;}
+:root{--bg:#0b1020;--card:#111a31;--card2:#15213d;--text:#e7ecff;--muted:#9aa7ce;--line:rgba(255,255,255,.08);--good:#38d39f;--bad:#ff6b7a;--warn:#f9c74f;--accent:#6fa8ff}
 *{box-sizing:border-box}body{margin:0;font-family:Inter,Segoe UI,system-ui,sans-serif;background:radial-gradient(circle at 15% -20%,#243a6b 0,#0b1020 40%);color:var(--text)}
-.wrap{max-width:1200px;margin:0 auto;padding:20px}
-.top{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}
+.wrap{max-width:1250px;margin:0 auto;padding:20px}.top{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
 .brand h1{font-size:1.2rem;margin:0}.brand p{margin:4px 0 0;color:var(--muted);font-size:.88rem}
 .pill{background:var(--card2);border:1px solid var(--line);border-radius:999px;padding:7px 12px;color:var(--muted);font-size:.8rem}
 .btn{background:linear-gradient(135deg,#3d7dff,#6b9fff);border:none;color:#fff;padding:10px 14px;border-radius:10px;cursor:pointer;font-weight:600}
+.btn.alt{background:#273862;border:1px solid var(--line)}
 .grid{display:grid;gap:12px}.kpis{grid-template-columns:repeat(4,1fr)}.two{grid-template-columns:2fr 1fr}.three{grid-template-columns:repeat(3,1fr)}
 .card{background:linear-gradient(160deg,var(--card),#0f1830);border:1px solid var(--line);border-radius:14px;padding:14px}
 .label{font-size:.75rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
@@ -20,7 +20,14 @@
 .good{color:var(--good)}.bad{color:var(--bad)}.warn{color:var(--warn)}
 .meter{height:10px;background:#0b1122;border-radius:999px;overflow:hidden;border:1px solid var(--line);margin-top:10px}
 .fill{height:100%;background:linear-gradient(90deg,#3f8cff,#38d39f)}
-table{width:100%;border-collapse:collapse;font-size:.86rem}th,td{padding:8px 4px;border-bottom:1px solid var(--line)}th{color:var(--muted);text-align:left}
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}.tab-btn{padding:10px 14px;border:1px solid var(--line);background:var(--card2);color:var(--text);border-radius:10px;cursor:pointer}.tab-btn.active{background:linear-gradient(135deg,#3d7dff,#6b9fff)}
+.tab{display:none}.tab.active{display:block}
+.filters{display:flex;gap:10px;flex-wrap:wrap;align-items:end}.field{display:flex;flex-direction:column;gap:4px}.field label{font-size:.75rem;color:var(--muted)}
+input,select{background:#0c1530;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px}
+.table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+table{width:100%;border-collapse:collapse;font-size:.86rem;min-width:980px}th,td{padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}th{color:var(--muted);text-align:left;position:sticky;top:0;background:#111a31;z-index:3}
+th:first-child,td:first-child{position:sticky;left:0;background:#111a31;z-index:2}tfoot td{font-weight:700;background:#15213d}
+.small-note{font-size:.8rem;color:var(--muted);margin-top:8px}
 @media(max-width:900px){.kpis,.two,.three{grid-template-columns:1fr}}
 </style>
 </head>
@@ -31,69 +38,115 @@ table{width:100%;border-collapse:collapse;font-size:.86rem}th,td{padding:8px 4px
     <div style="display:flex;gap:8px;align-items:center"><span class="pill" id="monthTag">Current Month</span><button class="btn" onclick="refreshData()">↻ Sync from Google</button></div>
   </div>
 
-  <div class="grid kpis">
-    <div class="card"><div class="label">MTD Revenue</div><div class="val" id="mtd">—</div><div class="sub" id="mtdSub"></div></div>
-    <div class="card"><div class="label">MTD Goal Pace</div><div class="val" id="pace">—</div><div class="meter"><div id="paceFill" class="fill" style="width:0%"></div></div><div class="sub" id="paceSub"></div></div>
-    <div class="card"><div class="label">YTD Revenue</div><div class="val" id="ytd">—</div><div class="sub" id="marginSub"></div></div>
-    <div class="card"><div class="label">GMROI (YTD)</div><div class="val" id="gmroi">—</div><div class="sub" id="invSub"></div></div>
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="overview">Overview</button>
+    <button class="tab-btn" data-tab="daily">Daily Table</button>
+    <button class="tab-btn" data-tab="monthly">Monthly Table</button>
+    <button class="tab-btn" data-tab="mix">Payment Mix</button>
   </div>
 
-  <div class="grid two" style="margin-top:12px">
-    <div class="card"><div class="label">Monthly Revenue vs Gross Margin</div><div style="height:300px;margin-top:8px"><canvas id="monthChart"></canvas></div></div>
-    <div class="card"><div class="label">Owner Snapshot</div>
-      <table>
-        <tr><th>Metric</th><th>Value</th></tr>
-        <tr><td>Average Ticket</td><td id="ticket">—</td></tr>
-        <tr><td>Deposit Capture Rate</td><td id="deposit">—</td></tr>
-        <tr><td>Sales per Sq Ft</td><td id="sqft">—</td></tr>
-        <tr><td>Best Sales Day</td><td id="best">—</td></tr>
-        <tr><td>Daily Goal</td><td id="dailyGoal">—</td></tr>
-        <tr><td>Monthly Goal</td><td id="monthlyGoal">—</td></tr>
-      </table>
+  <section id="overview" class="tab active">
+    <div class="grid kpis">
+      <div class="card"><div class="label">MTD Revenue</div><div class="val" id="mtd">—</div><div class="sub" id="mtdSub"></div></div>
+      <div class="card"><div class="label">MTD Goal Pace</div><div class="val" id="pace">—</div><div class="meter"><div id="paceFill" class="fill" style="width:0%"></div></div><div class="sub" id="paceSub"></div></div>
+      <div class="card"><div class="label">YTD Revenue</div><div class="val" id="ytd">—</div><div class="sub" id="marginSub"></div></div>
+      <div class="card"><div class="label">GMROI (YTD)</div><div class="val" id="gmroi">—</div><div class="sub" id="invSub"></div></div>
     </div>
-  </div>
+    <div class="grid two" style="margin-top:12px">
+      <div class="card"><div class="label">Monthly Revenue vs Gross Margin</div><div style="height:300px;margin-top:8px"><canvas id="monthChart"></canvas></div></div>
+      <div class="card"><div class="label">Owner Snapshot</div><table>
+        <tr><th>Metric</th><th>Value</th></tr><tr><td>Average Ticket</td><td id="ticket">—</td></tr><tr><td>Deposit Capture Rate</td><td id="deposit">—</td></tr><tr><td>Sales per Sq Ft</td><td id="sqft">—</td></tr><tr><td>Best Sales Day</td><td id="best">—</td></tr><tr><td>Daily Goal</td><td id="dailyGoal">—</td></tr><tr><td>Monthly Goal</td><td id="monthlyGoal">—</td></tr>
+      </table></div>
+    </div>
+  </section>
 
-  <div class="grid three" style="margin-top:12px">
-    <div class="card"><div class="label">Recent 7-Day Performance</div><div class="val" id="last7">—</div><div class="sub" id="last7Sub"></div></div>
-    <div class="card"><div class="label">Payment Mix (Last 30 Days)</div><div class="val" id="mix">—</div><div class="sub" id="mixSub"></div></div>
-    <div class="card"><div class="label">Tax + Delivery (Last 30 Days)</div><div class="val" id="tax">—</div><div class="sub" id="taxSub"></div></div>
-  </div>
+  <section id="daily" class="tab">
+    <div class="card">
+      <div class="filters">
+        <div class="field"><label>Start Date</label><input type="date" id="dailyStart"></div>
+        <div class="field"><label>End Date</label><input type="date" id="dailyEnd"></div>
+        <div class="field"><label>Weekday</label><select id="weekdayFilter"><option value="">All</option></select></div>
+        <div class="field"><label>Tender Type</label><select id="tenderFilter"><option value="all">All</option><option value="cash">Cash</option><option value="check">Check</option><option value="card">Card</option></select></div>
+        <button class="btn alt" onclick="renderDailyTable()">Apply</button>
+        <button class="btn" onclick="exportCsv('daily')">Export CSV</button>
+      </div>
+      <div class="table-wrap" style="margin-top:12px">
+        <table id="dailyTable"></table>
+      </div>
+      <div class="small-note" id="dailyCount"></div>
+    </div>
+  </section>
+
+  <section id="monthly" class="tab">
+    <div class="card">
+      <div class="filters"><button class="btn" onclick="exportCsv('monthly')">Export CSV</button></div>
+      <div class="table-wrap" style="margin-top:12px"><table id="monthlyTable"></table></div>
+      <div class="small-note" id="monthlyCount"></div>
+    </div>
+  </section>
+
+  <section id="mix" class="tab">
+    <div class="grid three">
+      <div class="card"><div class="label">Last 30 Days Mix</div><div style="height:280px"><canvas id="mixPie"></canvas></div></div>
+      <div class="card"><div class="label">Cash vs Check vs Card (Daily)</div><div style="height:280px"><canvas id="mixBar"></canvas></div></div>
+      <div class="card"><div class="label">Payment Mix (Last 30 Days)</div><div class="val" id="mixVal">—</div><div class="sub" id="mixSub"></div><div class="val" id="tax">—</div><div class="sub" id="taxSub"></div></div>
+    </div>
+  </section>
 </div>
 <script>
-const $=id=>document.getElementById(id); let chart;
+const $=id=>document.getElementById(id); let monthChart,mixPie,mixBar; let dataset={daily:[],monthly:[],kpis:{}};
 const money=n=>n==null?'—':new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(n);
-const pct=n=>n==null?'—':(n*100).toFixed(1)+'%';
+const pct=n=>n==null?'—':(n*100).toFixed(1)+'%'; const num=n=>(+n||0);
 const mult=n=>n==null?'—':n.toFixed(2)+'×';
-const short=n=>n==null?'—': '$'+(n/1000).toFixed(1)+'K';
+const sum=(rows,key)=>rows.reduce((s,r)=>s+num(r[key]),0);
+const avg=(rows,key)=>rows.length?sum(rows,key)/rows.length:0;
+const weekday=d=>new Date(d+'T00:00:00').toLocaleDateString('en-US',{weekday:'short'});
 
-function lastNDaysRows(rows,n){return [...rows].sort((a,b)=>a.date.localeCompare(b.date)).slice(-n)}
-function sum(rows,key){return rows.reduce((s,r)=>s+(+r[key]||0),0)}
-function monthlyChart(monthly){
- const data=monthly.filter(m=>m.subtotal>0);
- const labels=data.map(m=>m.month.slice(5));
- if(chart) chart.destroy();
- chart=new Chart($('monthChart'),{data:{labels,datasets:[{type:'bar',label:'Revenue',data:data.map(m=>m.subtotal),backgroundColor:'#6fa8ff',borderRadius:6},{type:'line',label:'Gross Margin',data:data.map(m=>m.grossMargin),borderColor:'#38d39f',pointRadius:3,tension:.25}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#cdd7ff'}}},scales:{x:{ticks:{color:'#9aa7ce'},grid:{color:'rgba(255,255,255,.05)'}},y:{ticks:{color:'#9aa7ce'},grid:{color:'rgba(255,255,255,.06)'}}}}});
+function tabInit(){document.querySelectorAll('.tab-btn').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tab-btn').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));b.classList.add('active');$(b.dataset.tab).classList.add('active');});}
+function toCsv(rows){if(!rows.length)return '';const keys=Object.keys(rows[0]);return [keys.join(','),...rows.map(r=>keys.map(k=>JSON.stringify(r[k]??'')).join(','))].join('\n');}
+function download(filename,text){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type:'text/csv'}));a.download=filename;a.click();}
+
+function renderDailyTable(){
+ const start=$('dailyStart').value,end=$('dailyEnd').value,wf=$('weekdayFilter').value,tf=$('tenderFilter').value;
+ let rows=[...dataset.daily].sort((a,b)=>a.date.localeCompare(b.date));
+ rows=rows.filter(r=>(!start||r.date>=start)&&(!end||r.date<=end));
+ if(wf) rows=rows.filter(r=>weekday(r.date)===wf);
+ if(tf!=='all') rows=rows.filter(r=>num(r[tf])>0);
+ const cols=['date','subtotal','cash','check','card','deposits','stateTax','cityTax','grossMarginPct','grossMargin','subtotalPlusDelivery','weekday'];
+ const head=['Date','Subtotal','Cash','Check','Card','Deposits','Taxes','GM%','GM$','Subtotal+Delivery','Weekday'];
+ const body=rows.map(r=>({date:r.date,subtotal:num(r.subtotal),cash:num(r.cash),check:num(r.check),card:num(r.card),deposits:num(r.deposits),taxes:num(r.stateTax)+num(r.cityTax),gmPct:num(r.grossMarginPct),gm:num(r.grossMargin),sp:num(r.subtotalPlusDelivery),weekday:weekday(r.date)}));
+ let html='<thead><tr>'+head.map(h=>`<th>${h}</th>`).join('')+'</tr></thead><tbody>';
+ body.forEach(r=>{html+='<tr><td>'+r.date+'</td><td>'+money(r.subtotal)+'</td><td>'+money(r.cash)+'</td><td>'+money(r.check)+'</td><td>'+money(r.card)+'</td><td>'+money(r.deposits)+'</td><td>'+money(r.taxes)+'</td><td>'+pct(r.gmPct)+'</td><td>'+money(r.gm)+'</td><td>'+money(r.sp)+'</td><td>'+r.weekday+'</td></tr>';});
+ html+='</tbody><tfoot><tr><td>Totals / Avg</td><td>'+money(sum(body,'subtotal'))+'</td><td>'+money(sum(body,'cash'))+'</td><td>'+money(sum(body,'check'))+'</td><td>'+money(sum(body,'card'))+'</td><td>'+money(sum(body,'deposits'))+'</td><td>'+money(sum(body,'taxes'))+'</td><td>'+pct(avg(body,'gmPct'))+'</td><td>'+money(sum(body,'gm'))+'</td><td>'+money(sum(body,'sp'))+'</td><td>'+ (body.length?avg(body.map(b=>({v:['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].indexOf(b.weekday)})),'v').toFixed(1)+' idx':'—') +'</td></tr></tfoot>';
+ $('dailyTable').innerHTML=html; $('dailyCount').textContent=`${rows.length} rows visible`;
+ window._dailyExport=body.map(r=>({date:r.date,subtotal:r.subtotal,cash:r.cash,check:r.check,card:r.card,deposits:r.deposits,taxes:r.taxes,'GM%':r.gmPct,'GM$':r.gm,'subtotal+delivery':r.sp,weekday:r.weekday}));
 }
 
-function apply(json){
- const {kpis,monthly,daily}=json.data;
- $('updated').textContent = json.lastUpdated ? 'Last sync: '+new Date(json.lastUpdated).toLocaleString() : 'Awaiting data';
- $('monthTag').textContent = kpis.currentMonth || 'Current Month';
- const ytdGM = sum(monthly,'grossMargin');
- $('mtd').textContent = money(kpis.mtdSubtotal); $('mtdSub').textContent='Goal '+money(kpis.monthlyGoal);
- const pace=Math.max(0,Math.min(140,(kpis.mtdSubtotal/(kpis.monthlyGoal||1))*100)); $('pace').textContent=pace.toFixed(1)+'%'; $('pace').className='val '+(pace>=100?'good':pace<80?'bad':'warn'); $('paceFill').style.width=Math.min(100,pace)+'%'; $('paceSub').textContent=(kpis.mtdGoalVariance>=0?'Ahead ':'Behind ')+money(Math.abs(kpis.mtdGoalVariance||0));
- $('ytd').textContent=money(kpis.ytdSubtotal); $('marginSub').textContent='YTD gross margin '+money(ytdGM);
- $('gmroi').textContent=mult(kpis.ytdGMROI); $('invSub').textContent='Avg inventory cost '+money(kpis.avgInventoryCost);
- $('ticket').textContent=money(kpis.avgTicket); $('deposit').textContent=pct(kpis.depositPct); $('sqft').textContent='$'+(+kpis.salesPerSqFt||0).toFixed(2); $('best').textContent=money(kpis.bestDaySubtotal)+' ('+(kpis.bestDayWeekday||'')+')'; $('dailyGoal').textContent=money(kpis.dailyGoal); $('monthlyGoal').textContent=money(kpis.monthlyGoal);
- const last7=lastNDaysRows(daily,7), prev7=[...daily].sort((a,b)=>a.date.localeCompare(b.date)).slice(-14,-7); const last7Sales=sum(last7,'subtotal'), prev7Sales=sum(prev7,'subtotal');
- const ch=prev7Sales?((last7Sales-prev7Sales)/prev7Sales):0; $('last7').textContent=money(last7Sales); $('last7Sub').textContent=(ch>=0?'+':'')+(ch*100).toFixed(1)+'% vs prior 7 days';
- const last30=lastNDaysRows(daily,30); const cash=sum(last30,'cash'), card=sum(last30,'card'), total=Math.max(1,cash+card); $('mix').textContent=pct(card/total)+' card'; $('mixSub').textContent=money(cash)+' cash / '+money(card)+' card';
- const tax=sum(last30,'stateTax')+sum(last30,'cityTax'), del=sum(last30,'deliveryFee'); $('tax').textContent=money(tax+del); $('taxSub').textContent='Taxes '+money(tax)+' · Delivery '+money(del);
- monthlyChart(monthly);
+function renderMonthlyTable(){
+ const rows=[...dataset.monthly].sort((a,b)=>a.month.localeCompare(b.month)).map(r=>({month:r.month,subtotal:num(r.subtotal),grossMargin:num(r.grossMargin),gmPct:num(r.grossMarginPct),deposits:num(r.deposits),mom:r.subtotalPrev?((num(r.subtotal)-num(r.subtotalPrev))/num(r.subtotalPrev)):null}));
+ let html='<thead><tr><th>Month</th><th>Subtotal</th><th>Gross Margin</th><th>GM%</th><th>Deposits</th><th>MoM Change</th></tr></thead><tbody>';
+ rows.forEach(r=>html+='<tr><td>'+r.month+'</td><td>'+money(r.subtotal)+'</td><td>'+money(r.grossMargin)+'</td><td>'+pct(r.gmPct)+'</td><td>'+money(r.deposits)+'</td><td>'+(r.mom==null?'—':pct(r.mom))+'</td></tr>');
+ html+='</tbody><tfoot><tr><td>Totals / Avg</td><td>'+money(sum(rows,'subtotal'))+'</td><td>'+money(sum(rows,'grossMargin'))+'</td><td>'+pct(avg(rows,'gmPct'))+'</td><td>'+money(sum(rows,'deposits'))+'</td><td>'+pct(avg(rows.filter(r=>r.mom!=null),'mom'))+'</td></tr></tfoot>';
+ $('monthlyTable').innerHTML=html; $('monthlyCount').textContent=`${rows.length} months`; window._monthlyExport=rows;
 }
-async function load(){const r=await fetch('/api/data'); if(!r.ok) return; apply(await r.json())}
-async function refreshData(){await fetch('/api/refresh'); await load();}
-load(); setInterval(load,5*60*1000);
+
+function exportCsv(type){const rows=type==='daily'?window._dailyExport:window._monthlyExport;download(type+'-table.csv',toCsv(rows||[]));}
+function chartMonthly(monthly){const data=monthly.filter(m=>num(m.subtotal)>0),labels=data.map(m=>m.month.slice(5)); if(monthChart)monthChart.destroy(); monthChart=new Chart($('monthChart'),{data:{labels,datasets:[{type:'bar',label:'Revenue',data:data.map(m=>num(m.subtotal)),backgroundColor:'#6fa8ff',borderRadius:6},{type:'line',label:'Gross Margin',data:data.map(m=>num(m.grossMargin)),borderColor:'#38d39f',pointRadius:3,tension:.25}]},options:{responsive:true,maintainAspectRatio:false}});}
+function chartMix(daily){const d=[...daily].sort((a,b)=>a.date.localeCompare(b.date)).slice(-30),cash=sum(d,'cash'),check=sum(d,'check'),card=sum(d,'card'); if(mixPie)mixPie.destroy(); if(mixBar)mixBar.destroy(); mixPie=new Chart($('mixPie'),{type:'pie',data:{labels:['Cash','Check','Card'],datasets:[{data:[cash,check,card],backgroundColor:['#38d39f','#f9c74f','#6fa8ff']}]}}); mixBar=new Chart($('mixBar'),{type:'bar',data:{labels:d.map(r=>r.date.slice(5)),datasets:[{label:'Cash',data:d.map(r=>num(r.cash)),backgroundColor:'#38d39f'},{label:'Check',data:d.map(r=>num(r.check)),backgroundColor:'#f9c74f'},{label:'Card',data:d.map(r=>num(r.card)),backgroundColor:'#6fa8ff'}]},options:{responsive:true,maintainAspectRatio:false,scales:{x:{stacked:true},y:{stacked:true}}}}); const total=Math.max(1,cash+check+card); $('mixVal').textContent=pct(card/total)+' card'; $('mixSub').textContent=money(cash)+' cash / '+money(check)+' check / '+money(card)+' card'; const tax=sum(d,'stateTax')+sum(d,'cityTax'),del=sum(d,'deliveryFee'); $('tax').textContent=money(tax+del); $('taxSub').textContent='Taxes '+money(tax)+' · Delivery '+money(del);
+}
+
+function apply(json){const {kpis,monthly,daily}=json.data;dataset={kpis,monthly,daily}; $('updated').textContent=json.lastUpdated?'Last sync: '+new Date(json.lastUpdated).toLocaleString():'Awaiting data'; $('monthTag').textContent=kpis.currentMonth||'Current Month';
+ const ytdGM=sum(monthly,'grossMargin'); $('mtd').textContent=money(kpis.mtdSubtotal); $('mtdSub').textContent='Goal '+money(kpis.monthlyGoal);
+ const pace=Math.max(0,Math.min(140,(num(kpis.mtdSubtotal)/(num(kpis.monthlyGoal)||1))*100)); $('pace').textContent=pace.toFixed(1)+'%'; $('pace').className='val '+(pace>=100?'good':pace<80?'bad':'warn'); $('paceFill').style.width=Math.min(100,pace)+'%'; $('paceSub').textContent=(kpis.mtdGoalVariance>=0?'Ahead ':'Behind ')+money(Math.abs(num(kpis.mtdGoalVariance)));
+ $('ytd').textContent=money(kpis.ytdSubtotal); $('marginSub').textContent='YTD gross margin '+money(ytdGM); $('gmroi').textContent=mult(num(kpis.ytdGMROI)); $('invSub').textContent='Avg inventory cost '+money(kpis.avgInventoryCost);
+ $('ticket').textContent=money(kpis.avgTicket); $('deposit').textContent=pct(kpis.depositPct); $('sqft').textContent='$'+num(kpis.salesPerSqFt).toFixed(2); $('best').textContent=money(kpis.bestDaySubtotal)+' ('+(kpis.bestDayWeekday||'')+')'; $('dailyGoal').textContent=money(kpis.dailyGoal); $('monthlyGoal').textContent=money(kpis.monthlyGoal);
+ const weekdays=[...new Set(daily.map(r=>weekday(r.date)))]; $('weekdayFilter').innerHTML='<option value="">All</option>'+weekdays.map(w=>`<option>${w}</option>`).join('');
+ chartMonthly(monthly); chartMix(daily); renderDailyTable(); renderMonthlyTable();
+}
+
+async function load(){const r=await fetch('/api/data');if(!r.ok)return;apply(await r.json())}
+async function refreshData(){await fetch('/api/refresh');await load()}
+tabInit(); load(); setInterval(load,5*60*1000);
 </script>
 </body>
 </html>
