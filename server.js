@@ -50,26 +50,87 @@ function parseWorkbook() {
 
   // ── Daily Entry ──
   const rawDE = xlsx.utils.sheet_to_json(wb.Sheets['Daily Entry'], { header: 1 });
-  const headers = rawDE[1]; // row index 1 is the real header
+  const headers = rawDE[1] || []; // row index 1 is the real header
   const dailyRows = rawDE.slice(2).filter(r => r[0] && r[1]);
 
-  const daily = dailyRows.map(r => ({
-    date: r[0] instanceof Date ? r[0].toISOString().slice(0, 10)
-         : typeof r[0] === 'number' ? xlsDateToISO(r[0]) : String(r[0]),
-    subtotal:    +r[1]  || 0,
-    cash:        +r[2]  || 0,
-    card:        +r[3]  || 0,
-    deposits:    +r[4]  || 0,
-    deliveryFee: +r[5]  || 0,
-    stateTax:    +r[6]  || 0,
-    cityTax:     +r[7]  || 0,
-    grossMarginPct: +r[12] || 0,
-    grossMarginDollar: +r[13] || 0,
-    subtotalWithDelivery: +r[14] || 0,
-    salesPerSqFt: +r[15] || 0,
-    weekday: r[17] || '',
-    yearMonth: String(r[19] || ''),
-  }));
+  const normalizedHeaderIndex = new Map();
+  headers.forEach((h, idx) => {
+    if (!h) return;
+    const key = String(h).trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+    normalizedHeaderIndex.set(key, idx);
+  });
+
+  function getColIndex(headerNames, fallbackIndex) {
+    for (const name of headerNames) {
+      const key = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+      if (normalizedHeaderIndex.has(key)) return normalizedHeaderIndex.get(key);
+    }
+    return fallbackIndex;
+  }
+
+  function getNum(row, idx) {
+    if (idx == null || idx < 0) return 0;
+    return +row[idx] || 0;
+  }
+
+  const dailyCol = {
+    subtotal: getColIndex(['Subtotal'], 1),
+    cash: getColIndex(['Cash Sales', 'Cash'], 2),
+    card: getColIndex(['Card Sales', 'Card'], 3),
+    check: getColIndex(['Check Sales', 'Check'], 4),
+    deposits: getColIndex(['Deposits', 'Deposit'], 4),
+    deliveryFee: getColIndex(['Delivery Fee', 'Delivery Fees'], 5),
+    stateTax: getColIndex(['State Tax'], 6),
+    cityTax: getColIndex(['City Tax'], 7),
+    grossMarginPct: getColIndex(['Gross Margin %', 'Gross Margin Pct'], 12),
+    grossMarginDollar: getColIndex(['Gross Margin $', 'Gross Margin Dollar'], 13),
+    subtotalWithDelivery: getColIndex(['Subtotal + Delivery', 'Subtotal With Delivery'], 14),
+    salesPerSqFt: getColIndex(['Sales / Sq Ft', 'Sales Per Sq Ft'], 15),
+    weekday: getColIndex(['Weekday', 'Day of Week'], 17),
+    yearMonth: getColIndex(['Year Month', 'Year/Month'], 19),
+  };
+
+  const daily = dailyRows.map(r => {
+    const cash = getNum(r, dailyCol.cash);
+    const card = getNum(r, dailyCol.card);
+    const check = getNum(r, dailyCol.check);
+    const tenderTotal = cash + card + check;
+
+    return {
+      date: r[0] instanceof Date ? r[0].toISOString().slice(0, 10)
+           : typeof r[0] === 'number' ? xlsDateToISO(r[0]) : String(r[0]),
+      subtotal: getNum(r, dailyCol.subtotal),
+      cash,
+      card,
+      check,
+      tenderTotal,
+      cashPct: tenderTotal > 0 ? cash / tenderTotal : 0,
+      cardPct: tenderTotal > 0 ? card / tenderTotal : 0,
+      checkPct: tenderTotal > 0 ? check / tenderTotal : 0,
+      deposits: getNum(r, dailyCol.deposits),
+      deliveryFee: getNum(r, dailyCol.deliveryFee),
+      stateTax: getNum(r, dailyCol.stateTax),
+      cityTax: getNum(r, dailyCol.cityTax),
+      grossMarginPct: getNum(r, dailyCol.grossMarginPct),
+      grossMarginDollar: getNum(r, dailyCol.grossMarginDollar),
+      subtotalWithDelivery: getNum(r, dailyCol.subtotalWithDelivery),
+      salesPerSqFt: getNum(r, dailyCol.salesPerSqFt),
+      weekday: r[dailyCol.weekday] || '',
+      yearMonth: String(r[dailyCol.yearMonth] || ''),
+    };
+  });
+
+  const tenderSummary = daily.reduce((acc, row) => {
+    acc.totalCash += row.cash;
+    acc.totalCard += row.card;
+    acc.totalCheck += row.check;
+    return acc;
+  }, { totalCash: 0, totalCard: 0, totalCheck: 0 });
+
+  tenderSummary.tenderTotal = tenderSummary.totalCash + tenderSummary.totalCard + tenderSummary.totalCheck;
+  tenderSummary.cashPct = tenderSummary.tenderTotal > 0 ? tenderSummary.totalCash / tenderSummary.tenderTotal : 0;
+  tenderSummary.cardPct = tenderSummary.tenderTotal > 0 ? tenderSummary.totalCard / tenderSummary.tenderTotal : 0;
+  tenderSummary.checkPct = tenderSummary.tenderTotal > 0 ? tenderSummary.totalCheck / tenderSummary.tenderTotal : 0;
 
   // ── Monthly Summary ──
   const rawMS = xlsx.utils.sheet_to_json(wb.Sheets['Monthly Summary'], { header: 1 });
@@ -130,7 +191,7 @@ function parseWorkbook() {
     goalHitPct: +r[5] || 0,
   }));
 
-  return { daily, monthly, kpis, weekdays };
+  return { daily, monthly, kpis, weekdays, summary: { tender: tenderSummary } };
 }
 
 function xlsDateToISO(serial) {
