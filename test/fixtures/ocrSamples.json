@@ -1,0 +1,14 @@
+[
+  {
+    "name": "commas_and_currency_symbols",
+    "text": "Date: 2026-03-14\nSubtotal $1,234.50\nCash $500.00\nCard $734.50\nDeposits $50.00\nDelivery Fee $10.00\nState Tax $85.24\nCity Tax $25.12"
+  },
+  {
+    "name": "missing_decimals_and_blank_fields",
+    "text": "Date 03/15/26\nSubtotal 1234\nCash 300\nCard 934\nDelivery Fee\nState Tax 100\nCity Tax 50"
+  },
+  {
+    "name": "ambiguous_date",
+    "text": "Date: 04/05/2026\nSubtotal 999.99\nCash 499.99\nCard 500.00\nDeposits 0\nDelivery Fee 12\nState Tax 62.00\nCity Tax 31.00"
+  }
+]
