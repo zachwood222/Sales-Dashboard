@@ -139,17 +139,7 @@ function parseWorkbook() {
   const wb = xlsx.readFile(LOCAL_FILE, { type: 'file', cellDates: true });
 
   const rawDE = xlsx.utils.sheet_to_json(wb.Sheets['Daily Entry'], { header: 1 });
-  const dailyRows = rawDE.slice(2).filter(r => r[0] && r[1]);
-
-  const workbookDaily = dailyRows.map(r => normalizeDailyRow({
-    date: r[0], subtotal: r[1], cash: r[2], card: r[3], deposits: r[4], deliveryFee: r[5], stateTax: r[6], cityTax: r[7],
-    grossMarginPct: r[12], grossMarginDollar: r[13], subtotalWithDelivery: r[14], salesPerSqFt: r[15], weekday: r[17], yearMonth: String(r[19] || ''),
-  }, 'google'));
-
-  const mergedDaily = mergeDailySources(workbookDaily, uploadStore.records, { policy: MERGE_POLICY });
-  const monthly = computeMonthlyFromDaily(mergedDaily);
-  const kpis = computeKpisFromDaily(mergedDaily);
-  const headers = rawDE[1]; // row index 1 is the real header
+  const headers = rawDE[1] || []; // row index 1 is the real header
   const deIdxMap = buildHeaderIndexMap(headers);
   logMissingHeaders('Daily Entry', deIdxMap, [
     { aliases: ['Cash Sales', 'Cash'] },
@@ -161,10 +151,8 @@ function parseWorkbook() {
   ]);
 
   const dailyRows = rawDE.slice(2).filter(r => r[0] && r[1]);
-
-  const daily = dailyRows.map(r => ({
-    date: r[0] instanceof Date ? r[0].toISOString().slice(0, 10)
-         : typeof r[0] === 'number' ? xlsDateToISO(r[0]) : String(r[0]),
+  const workbookDaily = dailyRows.map(r => normalizeDailyRow({
+    date: r[0],
     subtotal: getNum(r, deIdxMap, 'Subtotal'),
     cash: getNum(r, deIdxMap, 'Cash Sales', 'Cash'),
     card: getNum(r, deIdxMap, 'Card Sales', 'Card'),
@@ -178,25 +166,9 @@ function parseWorkbook() {
     salesPerSqFt: getNum(r, deIdxMap, 'Sales / Sq Ft', 'Sales Per Sq Ft'),
     weekday: getText(r, deIdxMap, 'Weekday'),
     yearMonth: getText(r, deIdxMap, 'Year Month', 'Year-Month'),
-  const headers = rawDE[1] || []; // row index 1 is the real header
-  const dailyRows = rawDE.slice(2).filter(r => r[0] && r[1]);
+  }, 'google'));
 
-  const daily = dailyRows.map(r => ({
-    date: normalizeDate(r[0]),
-    subtotal:    +r[1]  || 0,
-    cash:        +r[2]  || 0,
-    card:        +r[3]  || 0,
-    deposits:    +r[4]  || 0,
-    deliveryFee: +r[5]  || 0,
-    stateTax:    +r[6]  || 0,
-    cityTax:     +r[7]  || 0,
-    grossMarginPct: +r[12] || 0,
-    grossMarginDollar: +r[13] || 0,
-    subtotalWithDelivery: +r[14] || 0,
-    salesPerSqFt: +r[15] || 0,
-    weekday: r[17] || '',
-    yearMonth: normalizeMonth(r[19] || r[0]),
-  }));
+  const mergedDaily = mergeDailySources(workbookDaily, uploadStore.records, { policy: MERGE_POLICY });
 
   // ── Monthly Summary ──
   const rawMS = xlsx.utils.sheet_to_json(wb.Sheets['Monthly Summary'], { header: 1 });
@@ -215,7 +187,7 @@ function parseWorkbook() {
     .map(r => {
       const d = r[0] instanceof Date ? r[0] : new Date(Math.round((r[0] - 25569) * 86400 * 1000));
       return {
-        month: `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`,
+        month: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
         sales: getNum(r, msIdxMap, 'Sales'),
         deliveryFees: getNum(r, msIdxMap, 'Delivery Fees', 'Delivery Fee'),
         subtotal: getNum(r, msIdxMap, 'Subtotal'),
@@ -223,14 +195,6 @@ function parseWorkbook() {
         grossMargin: getNum(r, msIdxMap, 'Gross Margin', 'Gross Margin $'),
         salesPerSqFt: getNum(r, msIdxMap, 'Sales / Sq Ft', 'Sales Per Sq Ft'),
         goalVariance: getNum(r, msIdxMap, 'Goal Variance'),
-        month: normalizeMonth(d),
-        sales: +r[2] || 0,
-        deliveryFees: +r[3] || 0,
-        subtotal: +r[4] || 0,
-        deposits: +r[5] || 0,
-        grossMargin: +r[13] || 0,
-        salesPerSqFt: +r[14] || 0,
-        goalVariance: +r[15] || 0,
       };
     })
     .filter(m => m.sales > 0 || m.subtotal > 0);
@@ -240,28 +204,28 @@ function parseWorkbook() {
   function cell(addr) { const c = ds[addr]; return c ? c.v : null; }
 
   const kpis = {
-    squareFeet:      cell('B2'),
-    avgInventoryCost:cell('B3'),
-    dailyGoal:       cell('B4'),
-    monthlyGoal:     cell('B5'),
-    currentMonth:    cell('B6'),
-    mtdSubtotal:     cell('E2'),
+    squareFeet: cell('B2'),
+    avgInventoryCost: cell('B3'),
+    dailyGoal: cell('B4'),
+    monthlyGoal: cell('B5'),
+    currentMonth: cell('B6'),
+    mtdSubtotal: cell('E2'),
     mtdGoalVariance: cell('I2'),
-    mtdGrossMargin:  cell('M2'),
-    mtdGMROI:        cell('Q2'),
-    ytdSubtotal:     cell('E3'),
-    salesPerSqFt:    cell('I3'),
+    mtdGrossMargin: cell('M2'),
+    mtdGMROI: cell('Q2'),
+    ytdSubtotal: cell('E3'),
+    salesPerSqFt: cell('I3'),
     grossMarginPerSqFt: cell('M3'),
-    ytdGMROI:        cell('Q3'),
-    avgTicket:       cell('E4'),
-    depositPct:      cell('I4'),
+    ytdGMROI: cell('Q3'),
+    avgTicket: cell('E4'),
+    depositPct: cell('I4'),
     bestDaySubtotal: cell('M4'),
-    loadedDays:      cell('Q4'),
-    goalHitRate:     cell('I5'),
-    avgDailySubtotal:cell('M5'),
-    bestDayDate:     cell('B11'),
+    loadedDays: cell('Q4'),
+    goalHitRate: cell('I5'),
+    avgDailySubtotal: cell('M5'),
+    bestDayDate: cell('B11'),
     bestDayGrossMargin: cell('B13'),
-    bestDayWeekday:  cell('B14'),
+    bestDayWeekday: cell('B14'),
   };
 
   const rawWA = xlsx.utils.sheet_to_json(wb.Sheets['Weekday Analysis'], { header: 1 });
@@ -319,27 +283,6 @@ function computeKpisFromDaily(daily) {
     bestDaySubtotal: bestDay ? bestDay.subtotal : 0,
     bestDayDate: bestDay ? bestDay.date : null,
     loadedDays: daily.length,
-  const computedKpis = computeKpis({ daily, monthly });
-  const dailyByDate = [...daily].sort((a, b) => b.date.localeCompare(a.date));
-  const monthlyByMonth = [...monthly].sort((a, b) => b.month.localeCompare(a.month));
-  const rolling7Day = dailyByDate.slice(0, 7);
-  const rolling30Day = dailyByDate.slice(0, 30);
-
-  const dailyTotals = summarizeDaily(dailyByDate);
-  const monthlyTotals = summarizeMonthly(monthlyByMonth);
-  const monthlyAverages = averageMonthly(monthlyByMonth);
-
-  const periods = buildPeriods(dailyByDate, monthlyByMonth);
-
-  return {
-    daily,
-    monthly,
-    kpis: {
-      source: 'sheet',
-      values: kpis,
-    },
-    computedKpis,
-    weekdays,
   };
 }
 
@@ -451,23 +394,6 @@ function sumBy(rows, key) {
 
 function daysInMonth(year, monthOneBased) {
   return new Date(Date.UTC(year, monthOneBased, 0)).getUTCDate();
-    kpis,
-    weekdays,
-    dailyByDate,
-    monthlyByMonth,
-    rolling: {
-      days7: rolling7Day,
-      days30: rolling30Day,
-      summary7: summarizeDaily(rolling7Day),
-      summary30: summarizeDaily(rolling30Day),
-    },
-    summaries: {
-      dailyTotals,
-      monthlyTotals,
-      monthlyAverages,
-    },
-    periods,
-  };
 }
 
 function xlsDateToISO(serial) {
