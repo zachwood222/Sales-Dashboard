@@ -76,6 +76,22 @@ function buildHeaderIndexMap(headers = []) {
   return map;
 }
 
+function pickBestHeaderRow(rows = [], maxRows = 5, expectedAliases = []) {
+  let bestIdx = 0;
+  let bestScore = -1;
+  for (let i = 0; i < Math.min(maxRows, rows.length); i += 1) {
+    const idxMap = buildHeaderIndexMap(rows[i] || []);
+    const score = expectedAliases.reduce((count, aliases) => (
+      resolveHeaderIndex(idxMap, aliases) === undefined ? count : count + 1
+    ), 0);
+    if (score > bestScore) {
+      bestIdx = i;
+      bestScore = score;
+    }
+  }
+  return bestIdx;
+}
+
 function resolveHeaderIndex(idxMap, names = []) {
   for (const name of names) {
     const idx = idxMap[normalizeHeaderName(name)];
@@ -142,18 +158,21 @@ function parseWorkbook() {
   const wb = xlsx.readFile(LOCAL_FILE, { type: 'file', cellDates: true });
 
   const rawDE = xlsx.utils.sheet_to_json(wb.Sheets['Daily Entry'], { header: 1 });
-  const headers = rawDE[1] || []; // row index 1 is the real header
+  const dailyExpectedAliases = [
+    ['Date'],
+    ['Cash Sales', 'Cash'],
+    ['Card Sales', 'Card'],
+    ['Check Sales', 'Check', 'Deposits'],
+    ['Subtotal'],
+    ['State Tax'],
+    ['City Tax'],
+  ];
+  const deHeaderRowIdx = pickBestHeaderRow(rawDE, 6, dailyExpectedAliases);
+  const headers = rawDE[deHeaderRowIdx] || [];
   const deIdxMap = buildHeaderIndexMap(headers);
-  logMissingHeaders('Daily Entry', deIdxMap, [
-    { aliases: ['Cash Sales', 'Cash'] },
-    { aliases: ['Card Sales', 'Card'] },
-    { aliases: ['Check Sales', 'Check', 'Deposits'] },
-    { aliases: ['Subtotal'] },
-    { aliases: ['State Tax'] },
-    { aliases: ['City Tax'] },
-  ]);
+  logMissingHeaders('Daily Entry', deIdxMap, dailyExpectedAliases.map(aliases => ({ aliases })));
 
-  const dailyRows = rawDE.slice(2).filter(r => r[0] && r[1]);
+  const dailyRows = rawDE.slice(deHeaderRowIdx + 1).filter(r => r[0] && r[1]);
   const workbookDaily = dailyRows.map(r => normalizeDailyRow({
     date: r[0],
     subtotal: getNum(r, deIdxMap, 'Subtotal'),
