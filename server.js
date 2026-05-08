@@ -4,31 +4,49 @@ const xlsx = require('xlsx');
 const cron = require('node-cron');
 const path = require('path');
 const fs = require('fs');
+const { mergeDailySources, buildSourceStats } = require('./src/data/mergeSources');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const FILE_URL = process.env.FILE_URL; // Google Drive or Dropbox direct-download URL
 const LOCAL_FILE = path.join(__dirname, 'data', 'fowhand.xlsm');
+const UPLOAD_STORE_FILE = path.join(__dirname, 'data', 'uploadedDaily.json');
+const MERGE_POLICY = process.env.MERGE_POLICY || 'upload_wins';
 
 let cachedData = null;
 let lastUpdated = null;
+let uploadStore = { records: [], lastUploadAt: null };
+
+app.use(express.json({ limit: '2mb' }));
+
+function loadUploadStore() {
+  try {
+    if (!fs.existsSync(UPLOAD_STORE_FILE)) return;
+    const parsed = JSON.parse(fs.readFileSync(UPLOAD_STORE_FILE, 'utf8'));
+    uploadStore = {
+      records: Array.isArray(parsed.records) ? parsed.records : [],
+      lastUploadAt: parsed.lastUploadAt || null,
+    };
+  } catch (err) {
+    console.error('Failed to load upload store:', err.message);
+  }
+}
+
+function saveUploadStore() {
+  fs.mkdirSync(path.dirname(UPLOAD_STORE_FILE), { recursive: true });
+  fs.writeFileSync(UPLOAD_STORE_FILE, JSON.stringify(uploadStore, null, 2));
+}
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 function toDirectDownload(url) {
-  // Google Sheets file links: export to XLSX
   const gsheet = url.match(/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
   if (gsheet) return `https://docs.google.com/spreadsheets/d/${gsheet[1]}/export?format=xlsx`;
-
-  // Google Drive file links: convert share link → direct download
   const gdrive = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
   if (gdrive && url.includes('drive.google.com')) {
     return `https://drive.google.com/uc?export=download&id=${gdrive[1]}`;
   }
-
-  // Dropbox: swap ?dl=0 → ?dl=1
   if (url.includes('dropbox.com')) return url.replace(/[?&]dl=0/, '').replace(/[?&]dl=1/, '') + '?dl=1';
-
   return url;
 }
 
@@ -45,81 +63,45 @@ async function downloadFile() {
   console.log('File downloaded:', LOCAL_FILE);
 }
 
+function normalizeDailyRow(row, source = 'upload') {
+  const dateVal = row.date;
+  return {
+    date: dateVal instanceof Date ? dateVal.toISOString().slice(0, 10)
+      : typeof dateVal === 'number' ? xlsDateToISO(dateVal) : String(dateVal || ''),
+    subtotal: +row.subtotal || 0,
+    cash: +row.cash || 0,
+    card: +row.card || 0,
+    deposits: +row.deposits || 0,
+    deliveryFee: +row.deliveryFee || 0,
+    stateTax: +row.stateTax || 0,
+    cityTax: +row.cityTax || 0,
+    grossMarginPct: +row.grossMarginPct || 0,
+    grossMarginDollar: +row.grossMarginDollar || 0,
+    subtotalWithDelivery: +row.subtotalWithDelivery || 0,
+    salesPerSqFt: +row.salesPerSqFt || 0,
+    weekday: row.weekday || '',
+    yearMonth: row.yearMonth || '',
+    ticketId: row.ticketId || null,
+    storeId: row.storeId || null,
+    source,
+  };
+}
+
 function parseWorkbook() {
   const wb = xlsx.readFile(LOCAL_FILE, { type: 'file', cellDates: true });
 
-  // ── Daily Entry ──
   const rawDE = xlsx.utils.sheet_to_json(wb.Sheets['Daily Entry'], { header: 1 });
-  const headers = rawDE[1]; // row index 1 is the real header
   const dailyRows = rawDE.slice(2).filter(r => r[0] && r[1]);
 
-  const daily = dailyRows.map(r => ({
-    date: r[0] instanceof Date ? r[0].toISOString().slice(0, 10)
-         : typeof r[0] === 'number' ? xlsDateToISO(r[0]) : String(r[0]),
-    subtotal:    +r[1]  || 0,
-    cash:        +r[2]  || 0,
-    card:        +r[3]  || 0,
-    deposits:    +r[4]  || 0,
-    deliveryFee: +r[5]  || 0,
-    stateTax:    +r[6]  || 0,
-    cityTax:     +r[7]  || 0,
-    grossMarginPct: +r[12] || 0,
-    grossMarginDollar: +r[13] || 0,
-    subtotalWithDelivery: +r[14] || 0,
-    salesPerSqFt: +r[15] || 0,
-    weekday: r[17] || '',
-    yearMonth: String(r[19] || ''),
-  }));
+  const workbookDaily = dailyRows.map(r => normalizeDailyRow({
+    date: r[0], subtotal: r[1], cash: r[2], card: r[3], deposits: r[4], deliveryFee: r[5], stateTax: r[6], cityTax: r[7],
+    grossMarginPct: r[12], grossMarginDollar: r[13], subtotalWithDelivery: r[14], salesPerSqFt: r[15], weekday: r[17], yearMonth: String(r[19] || ''),
+  }, 'google'));
 
-  // ── Monthly Summary ──
-  const rawMS = xlsx.utils.sheet_to_json(wb.Sheets['Monthly Summary'], { header: 1 });
-  const monthly = rawMS.slice(2)
-    .filter(r => r[0] instanceof Date || typeof r[0] === 'number')
-    .map(r => {
-      const d = r[0] instanceof Date ? r[0] : new Date(Math.round((r[0] - 25569) * 86400 * 1000));
-      return {
-        month: `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`,
-        sales: +r[2] || 0,
-        deliveryFees: +r[3] || 0,
-        subtotal: +r[4] || 0,
-        deposits: +r[5] || 0,
-        grossMargin: +r[13] || 0,
-        salesPerSqFt: +r[14] || 0,
-        goalVariance: +r[15] || 0,
-      };
-    })
-    .filter(m => m.sales > 0 || m.subtotal > 0);
+  const mergedDaily = mergeDailySources(workbookDaily, uploadStore.records, { policy: MERGE_POLICY });
+  const monthly = computeMonthlyFromDaily(mergedDaily);
+  const kpis = computeKpisFromDaily(mergedDaily);
 
-  // ── Dashboard KPIs from Dashboard sheet ──
-  const ds = wb.Sheets['Dashboard'];
-  function cell(addr) { const c = ds[addr]; return c ? c.v : null; }
-
-  const kpis = {
-    squareFeet:      cell('B2'),
-    avgInventoryCost:cell('B3'),
-    dailyGoal:       cell('B4'),
-    monthlyGoal:     cell('B5'),
-    currentMonth:    cell('B6'),
-    mtdSubtotal:     cell('E2'),
-    mtdGoalVariance: cell('I2'),
-    mtdGrossMargin:  cell('M2'),
-    mtdGMROI:        cell('Q2'),
-    ytdSubtotal:     cell('E3'),
-    salesPerSqFt:    cell('I3'),
-    grossMarginPerSqFt: cell('M3'),
-    ytdGMROI:        cell('Q3'),
-    avgTicket:       cell('E4'),
-    depositPct:      cell('I4'),
-    bestDaySubtotal: cell('M4'),
-    loadedDays:      cell('Q4'),
-    goalHitRate:     cell('I5'),
-    avgDailySubtotal:cell('M5'),
-    bestDayDate:     cell('B11'),
-    bestDayGrossMargin: cell('B13'),
-    bestDayWeekday:  cell('B14'),
-  };
-
-  // ── Weekday Analysis ──
   const rawWA = xlsx.utils.sheet_to_json(wb.Sheets['Weekday Analysis'], { header: 1 });
   const weekdays = rawWA.slice(2).filter(r => r[0]).map(r => ({
     day: r[0],
@@ -130,7 +112,41 @@ function parseWorkbook() {
     goalHitPct: +r[5] || 0,
   }));
 
-  return { daily, monthly, kpis, weekdays };
+  return { daily: mergedDaily, monthly, kpis, weekdays, sourceStats: buildSourceStats(mergedDaily, uploadStore.lastUploadAt) };
+}
+
+function computeMonthlyFromDaily(daily) {
+  const byMonth = new Map();
+  for (const row of daily) {
+    const month = String(row.date || '').slice(0, 7);
+    if (!month) continue;
+    if (!byMonth.has(month)) byMonth.set(month, { month, sales: 0, deliveryFees: 0, subtotal: 0, deposits: 0, grossMargin: 0, salesPerSqFt: 0, goalVariance: 0, _days: 0 });
+    const item = byMonth.get(month);
+    item.sales += row.subtotalWithDelivery || row.subtotal || 0;
+    item.deliveryFees += row.deliveryFee || 0;
+    item.subtotal += row.subtotal || 0;
+    item.deposits += row.deposits || 0;
+    item.grossMargin += row.grossMarginDollar || 0;
+    item.salesPerSqFt += row.salesPerSqFt || 0;
+    item._days += 1;
+  }
+  return Array.from(byMonth.values()).map(m => ({ ...m, salesPerSqFt: m._days ? m.salesPerSqFt / m._days : 0, goalVariance: 0 })).sort((a, b) => a.month.localeCompare(b.month));
+}
+
+function computeKpisFromDaily(daily) {
+  const subtotal = daily.reduce((sum, row) => sum + (row.subtotal || 0), 0);
+  const grossMargin = daily.reduce((sum, row) => sum + (row.grossMarginDollar || 0), 0);
+  const deposits = daily.reduce((sum, row) => sum + (row.deposits || 0), 0);
+  const bestDay = daily.reduce((best, row) => (!best || row.subtotal > best.subtotal ? row : best), null);
+  return {
+    ytdSubtotal: subtotal,
+    mtdSubtotal: subtotal,
+    mtdGrossMargin: grossMargin,
+    depositPct: subtotal ? deposits / subtotal : 0,
+    bestDaySubtotal: bestDay ? bestDay.subtotal : 0,
+    bestDayDate: bestDay ? bestDay.date : null,
+    loadedDays: daily.length,
+  };
 }
 
 function xlsDateToISO(serial) {
@@ -149,13 +165,22 @@ async function refreshData() {
   }
 }
 
-// ── Routes ────────────────────────────────────────────────────────────────────
-
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/api/data', (req, res) => {
   if (!cachedData) return res.status(503).json({ error: 'Data not loaded yet' });
-  res.json({ data: cachedData, lastUpdated });
+  res.json({ data: cachedData, lastUpdated, sourceStats: cachedData.sourceStats });
+});
+
+app.post('/api/upload-daily', async (req, res) => {
+  const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+  if (!rows.length) return res.status(400).json({ error: 'rows[] required' });
+  const normalized = rows.map(r => normalizeDailyRow(r, 'upload')).filter(r => r.date);
+  uploadStore.records = mergeDailySources(uploadStore.records, normalized, { policy: 'upload_wins' });
+  uploadStore.lastUploadAt = new Date().toISOString();
+  saveUploadStore();
+  await refreshData();
+  res.json({ ok: true, uploaded: normalized.length, lastUploadAt: uploadStore.lastUploadAt });
 });
 
 app.get('/api/refresh', async (req, res) => {
@@ -165,14 +190,13 @@ app.get('/api/refresh', async (req, res) => {
 
 app.get('/health', (req, res) => res.json({ ok: true }));
 
-// ── Cron: refresh every day at 6 AM server time ───────────────────────────────
 cron.schedule('0 6 * * *', () => {
   console.log('Cron triggered — refreshing data');
   refreshData();
 });
 
-// ── Boot ──────────────────────────────────────────────────────────────────────
 app.listen(PORT, async () => {
   console.log(`Server listening on port ${PORT}`);
+  loadUploadStore();
   await refreshData();
 });
