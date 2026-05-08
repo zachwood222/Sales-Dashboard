@@ -130,7 +130,128 @@ function parseWorkbook() {
     goalHitPct: +r[5] || 0,
   }));
 
-  return { daily, monthly, kpis, weekdays };
+  const computedKpis = computeKpis({ daily, monthly });
+
+  return {
+    daily,
+    monthly,
+    kpis: {
+      source: 'sheet',
+      values: kpis,
+    },
+    computedKpis,
+    weekdays,
+  };
+}
+
+function computeKpis({ daily, monthly }) {
+  const parsedDaily = daily
+    .map(d => {
+      const dateObj = new Date(`${d.date}T00:00:00Z`);
+      return Number.isNaN(dateObj.getTime()) ? null : { ...d, dateObj };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.dateObj - b.dateObj);
+
+  if (!parsedDaily.length) {
+    return {
+      source: 'computed',
+      mtd: null,
+      bestDay: null,
+      paymentMix: null,
+      trends: null,
+    };
+  }
+
+  const latestDay = parsedDaily[parsedDaily.length - 1];
+  const year = latestDay.dateObj.getUTCFullYear();
+  const month = latestDay.dateObj.getUTCMonth();
+  const dayOfMonth = latestDay.dateObj.getUTCDate();
+
+  const isSameMonth = d => d.dateObj.getUTCFullYear() === year && d.dateObj.getUTCMonth() === month;
+  const mtdRows = parsedDaily.filter(isSameMonth);
+  const mtdSales = sumBy(mtdRows, 'subtotalWithDelivery');
+  const mtdSubtotal = sumBy(mtdRows, 'subtotal');
+  const mtdGrossMarginDollar = sumBy(mtdRows, 'grossMarginDollar');
+  const mtdGrossMarginPct = mtdSubtotal > 0 ? mtdGrossMarginDollar / mtdSubtotal : null;
+  const avgDailySubtotal = mtdRows.length > 0 ? mtdSubtotal / mtdRows.length : null;
+
+  const bestDayRow = mtdRows.reduce((best, row) => {
+    if (!best || row.subtotal > best.subtotal) return row;
+    return best;
+  }, null);
+
+  const paymentCash = sumBy(mtdRows, 'cash');
+  const paymentCard = sumBy(mtdRows, 'card');
+  const paymentCheck = sumBy(mtdRows, 'deposits');
+  const paymentTotal = paymentCash + paymentCard + paymentCheck;
+
+  const previousDay = parsedDaily.length > 1 ? parsedDaily[parsedDaily.length - 2] : null;
+  const sameWeekdayLastWeek = parsedDaily.find(
+    d => d.dateObj.getTime() === latestDay.dateObj.getTime() - (7 * 24 * 60 * 60 * 1000),
+  ) || null;
+
+  const priorMonthDate = new Date(Date.UTC(year, month - 1, dayOfMonth));
+  const priorMonthId = `${priorMonthDate.getUTCFullYear()}-${String(priorMonthDate.getUTCMonth() + 1).padStart(2, '0')}`;
+  const priorMonthRow = monthly.find(m => m.month === priorMonthId) || null;
+  const priorMonthCutoffValue = priorMonthRow
+    ? ((priorMonthRow.subtotal || 0) / daysInMonth(priorMonthDate.getUTCFullYear(), priorMonthDate.getUTCMonth() + 1)) * dayOfMonth
+    : null;
+
+  return {
+    source: 'computed',
+    mtd: {
+      sales: mtdSales,
+      subtotal: mtdSubtotal,
+      grossMarginDollar: mtdGrossMarginDollar,
+      grossMarginPct: mtdGrossMarginPct,
+      avgDailySubtotal,
+    },
+    bestDay: bestDayRow
+      ? {
+          date: bestDayRow.date,
+          subtotal: bestDayRow.subtotal,
+          grossMarginDollar: bestDayRow.grossMarginDollar,
+        }
+      : null,
+    paymentMix: {
+      cash: { total: paymentCash, pct: paymentTotal > 0 ? paymentCash / paymentTotal : null },
+      check: { total: paymentCheck, pct: paymentTotal > 0 ? paymentCheck / paymentTotal : null },
+      card: { total: paymentCard, pct: paymentTotal > 0 ? paymentCard / paymentTotal : null },
+      total: paymentTotal,
+    },
+    trends: {
+      vsPreviousDay: buildSubtotalTrend(latestDay, previousDay),
+      vsSameWeekdayLastWeek: buildSubtotalTrend(latestDay, sameWeekdayLastWeek),
+      mtdVsPriorMonthSameDayCutoff: {
+        currentMtdSubtotal: mtdSubtotal,
+        priorMonthSameDayCutoffSubtotal: priorMonthCutoffValue,
+        delta: priorMonthCutoffValue === null ? null : mtdSubtotal - priorMonthCutoffValue,
+        deltaPct: priorMonthCutoffValue > 0 ? (mtdSubtotal - priorMonthCutoffValue) / priorMonthCutoffValue : null,
+      },
+    },
+  };
+}
+
+function buildSubtotalTrend(current, baseline) {
+  if (!current || !baseline) return null;
+  const delta = current.subtotal - baseline.subtotal;
+  return {
+    currentDate: current.date,
+    baselineDate: baseline.date,
+    currentSubtotal: current.subtotal,
+    baselineSubtotal: baseline.subtotal,
+    delta,
+    deltaPct: baseline.subtotal > 0 ? delta / baseline.subtotal : null,
+  };
+}
+
+function sumBy(rows, key) {
+  return rows.reduce((sum, row) => sum + (+row[key] || 0), 0);
+}
+
+function daysInMonth(year, monthOneBased) {
+  return new Date(Date.UTC(year, monthOneBased, 0)).getUTCDate();
 }
 
 function xlsDateToISO(serial) {
