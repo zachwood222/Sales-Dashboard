@@ -123,6 +123,24 @@ function parseWorkbook() {
     salesPerSqFt: getNum(r, deIdxMap, 'Sales / Sq Ft', 'Sales Per Sq Ft'),
     weekday: getText(r, deIdxMap, 'Weekday'),
     yearMonth: getText(r, deIdxMap, 'Year Month', 'Year-Month'),
+  const headers = rawDE[1] || []; // row index 1 is the real header
+  const dailyRows = rawDE.slice(2).filter(r => r[0] && r[1]);
+
+  const daily = dailyRows.map(r => ({
+    date: normalizeDate(r[0]),
+    subtotal:    +r[1]  || 0,
+    cash:        +r[2]  || 0,
+    card:        +r[3]  || 0,
+    deposits:    +r[4]  || 0,
+    deliveryFee: +r[5]  || 0,
+    stateTax:    +r[6]  || 0,
+    cityTax:     +r[7]  || 0,
+    grossMarginPct: +r[12] || 0,
+    grossMarginDollar: +r[13] || 0,
+    subtotalWithDelivery: +r[14] || 0,
+    salesPerSqFt: +r[15] || 0,
+    weekday: r[17] || '',
+    yearMonth: normalizeMonth(r[19] || r[0]),
   }));
 
   // ── Monthly Summary ──
@@ -150,6 +168,14 @@ function parseWorkbook() {
         grossMargin: getNum(r, msIdxMap, 'Gross Margin', 'Gross Margin $'),
         salesPerSqFt: getNum(r, msIdxMap, 'Sales / Sq Ft', 'Sales Per Sq Ft'),
         goalVariance: getNum(r, msIdxMap, 'Goal Variance'),
+        month: normalizeMonth(d),
+        sales: +r[2] || 0,
+        deliveryFees: +r[3] || 0,
+        subtotal: +r[4] || 0,
+        deposits: +r[5] || 0,
+        grossMargin: +r[13] || 0,
+        salesPerSqFt: +r[14] || 0,
+        goalVariance: +r[15] || 0,
       };
     })
     .filter(m => m.sales > 0 || m.subtotal > 0);
@@ -205,12 +231,99 @@ function parseWorkbook() {
     goalHitPct: getNum(r, waIdxMap, 'Goal Hit %', 'Goal Hit Pct'),
   }));
 
-  return { daily, monthly, kpis, weekdays };
+  const dailyByDate = [...daily].sort((a, b) => b.date.localeCompare(a.date));
+  const monthlyByMonth = [...monthly].sort((a, b) => b.month.localeCompare(a.month));
+  const rolling7Day = dailyByDate.slice(0, 7);
+  const rolling30Day = dailyByDate.slice(0, 30);
+
+  const dailyTotals = summarizeDaily(dailyByDate);
+  const monthlyTotals = summarizeMonthly(monthlyByMonth);
+  const monthlyAverages = averageMonthly(monthlyByMonth);
+
+  const periods = buildPeriods(dailyByDate, monthlyByMonth);
+
+  return {
+    daily,
+    monthly,
+    kpis,
+    weekdays,
+    dailyByDate,
+    monthlyByMonth,
+    rolling: {
+      days7: rolling7Day,
+      days30: rolling30Day,
+      summary7: summarizeDaily(rolling7Day),
+      summary30: summarizeDaily(rolling30Day),
+    },
+    summaries: {
+      dailyTotals,
+      monthlyTotals,
+      monthlyAverages,
+    },
+    periods,
+  };
 }
 
 function xlsDateToISO(serial) {
   const d = new Date(Math.round((serial - 25569) * 86400 * 1000));
   return d.toISOString().slice(0, 10);
+}
+
+function normalizeDate(value) {
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  if (typeof value === 'number') return xlsDateToISO(value);
+  const date = new Date(String(value));
+  if (!Number.isNaN(date.getTime())) return date.toISOString().slice(0, 10);
+  return String(value || '');
+}
+
+function normalizeMonth(value) {
+  const isoDate = normalizeDate(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return isoDate.slice(0, 7);
+  const asMonth = String(value || '').trim();
+  const mm = asMonth.match(/^(\d{4})-(\d{1,2})$/);
+  if (mm) return `${mm[1]}-${String(mm[2]).padStart(2, '0')}`;
+  return asMonth;
+}
+
+function summarizeDaily(rows) {
+  return rows.reduce((acc, row) => {
+    acc.subtotal += row.subtotal || 0;
+    acc.taxes += (row.stateTax || 0) + (row.cityTax || 0);
+    acc.deposits += row.deposits || 0;
+    acc.grossMarginDollar += row.grossMarginDollar || 0;
+    return acc;
+  }, { subtotal: 0, taxes: 0, deposits: 0, grossMarginDollar: 0 });
+}
+
+function summarizeMonthly(rows) {
+  return rows.reduce((acc, row) => {
+    acc.sales += row.sales || 0;
+    acc.subtotal += row.subtotal || 0;
+    acc.grossMargin += row.grossMargin || 0;
+    acc.salesPerSqFt += row.salesPerSqFt || 0;
+    return acc;
+  }, { sales: 0, subtotal: 0, grossMargin: 0, salesPerSqFt: 0 });
+}
+
+function averageMonthly(rows) {
+  if (!rows.length) return { sales: 0, subtotal: 0, grossMargin: 0, salesPerSqFt: 0 };
+  const totals = summarizeMonthly(rows);
+  return {
+    sales: totals.sales / rows.length,
+    subtotal: totals.subtotal / rows.length,
+    grossMargin: totals.grossMargin / rows.length,
+    salesPerSqFt: totals.salesPerSqFt / rows.length,
+  };
+}
+
+function buildPeriods(dailyRows, monthlyRows) {
+  const today = dailyRows[0]?.date || null;
+  const yesterday = dailyRows[1]?.date || null;
+  const thisMonth = monthlyRows[0]?.month || null;
+  const lastMonth = monthlyRows[1]?.month || null;
+  const ytd = thisMonth ? `${thisMonth.slice(0, 4)}-01` : null;
+  return { today, yesterday, thisMonth, lastMonth, ytd };
 }
 
 async function refreshData() {
