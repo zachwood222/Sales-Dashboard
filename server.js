@@ -32,6 +32,50 @@ function toDirectDownload(url) {
   return url;
 }
 
+
+function normalizeHeaderName(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function buildHeaderIndexMap(headers = []) {
+  const map = {};
+  headers.forEach((header, idx) => {
+    const key = normalizeHeaderName(header);
+    if (key && map[key] === undefined) map[key] = idx;
+  });
+  return map;
+}
+
+function resolveHeaderIndex(idxMap, names = []) {
+  for (const name of names) {
+    const idx = idxMap[normalizeHeaderName(name)];
+    if (idx !== undefined) return idx;
+  }
+  return undefined;
+}
+
+function logMissingHeaders(sheetName, idxMap, expected) {
+  const missing = expected.filter(({ aliases }) => resolveHeaderIndex(idxMap, aliases) === undefined);
+  if (missing.length) {
+    console.warn(`[parseWorkbook] ${sheetName}: missing headers -> ${missing.map(h => h.aliases[0]).join(', ')}. Using defaults.`);
+  }
+}
+
+function getNum(row, idxMap, ...aliases) {
+  const idx = resolveHeaderIndex(idxMap, aliases);
+  return idx === undefined ? 0 : (+row[idx] || 0);
+}
+
+function getText(row, idxMap, ...aliases) {
+  const idx = resolveHeaderIndex(idxMap, aliases);
+  return idx === undefined ? '' : String(row[idx] || '');
+}
+
 async function downloadFile() {
   if (!FILE_URL) {
     console.log('No FILE_URL set — using local file if present');
@@ -51,41 +95,61 @@ function parseWorkbook() {
   // ── Daily Entry ──
   const rawDE = xlsx.utils.sheet_to_json(wb.Sheets['Daily Entry'], { header: 1 });
   const headers = rawDE[1]; // row index 1 is the real header
+  const deIdxMap = buildHeaderIndexMap(headers);
+  logMissingHeaders('Daily Entry', deIdxMap, [
+    { aliases: ['Cash Sales', 'Cash'] },
+    { aliases: ['Card Sales', 'Card'] },
+    { aliases: ['Check Sales', 'Check', 'Deposits'] },
+    { aliases: ['Subtotal'] },
+    { aliases: ['State Tax'] },
+    { aliases: ['City Tax'] },
+  ]);
+
   const dailyRows = rawDE.slice(2).filter(r => r[0] && r[1]);
 
   const daily = dailyRows.map(r => ({
     date: r[0] instanceof Date ? r[0].toISOString().slice(0, 10)
          : typeof r[0] === 'number' ? xlsDateToISO(r[0]) : String(r[0]),
-    subtotal:    +r[1]  || 0,
-    cash:        +r[2]  || 0,
-    card:        +r[3]  || 0,
-    deposits:    +r[4]  || 0,
-    deliveryFee: +r[5]  || 0,
-    stateTax:    +r[6]  || 0,
-    cityTax:     +r[7]  || 0,
-    grossMarginPct: +r[12] || 0,
-    grossMarginDollar: +r[13] || 0,
-    subtotalWithDelivery: +r[14] || 0,
-    salesPerSqFt: +r[15] || 0,
-    weekday: r[17] || '',
-    yearMonth: String(r[19] || ''),
+    subtotal: getNum(r, deIdxMap, 'Subtotal'),
+    cash: getNum(r, deIdxMap, 'Cash Sales', 'Cash'),
+    card: getNum(r, deIdxMap, 'Card Sales', 'Card'),
+    deposits: getNum(r, deIdxMap, 'Check Sales', 'Check', 'Deposits'),
+    deliveryFee: getNum(r, deIdxMap, 'Delivery Fee', 'Delivery Fees'),
+    stateTax: getNum(r, deIdxMap, 'State Tax'),
+    cityTax: getNum(r, deIdxMap, 'City Tax'),
+    grossMarginPct: getNum(r, deIdxMap, 'Gross Margin %', 'Gross Margin Pct'),
+    grossMarginDollar: getNum(r, deIdxMap, 'Gross Margin $', 'Gross Margin Dollar'),
+    subtotalWithDelivery: getNum(r, deIdxMap, 'Subtotal + Delivery', 'Subtotal With Delivery'),
+    salesPerSqFt: getNum(r, deIdxMap, 'Sales / Sq Ft', 'Sales Per Sq Ft'),
+    weekday: getText(r, deIdxMap, 'Weekday'),
+    yearMonth: getText(r, deIdxMap, 'Year Month', 'Year-Month'),
   }));
 
   // ── Monthly Summary ──
   const rawMS = xlsx.utils.sheet_to_json(wb.Sheets['Monthly Summary'], { header: 1 });
+  const msHeaders = rawMS[1] || rawMS[0] || [];
+  const msIdxMap = buildHeaderIndexMap(msHeaders);
+  logMissingHeaders('Monthly Summary', msIdxMap, [
+    { aliases: ['Sales'] },
+    { aliases: ['Delivery Fees', 'Delivery Fee'] },
+    { aliases: ['Subtotal'] },
+    { aliases: ['Deposits'] },
+    { aliases: ['Gross Margin'] },
+  ]);
+
   const monthly = rawMS.slice(2)
     .filter(r => r[0] instanceof Date || typeof r[0] === 'number')
     .map(r => {
       const d = r[0] instanceof Date ? r[0] : new Date(Math.round((r[0] - 25569) * 86400 * 1000));
       return {
         month: `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`,
-        sales: +r[2] || 0,
-        deliveryFees: +r[3] || 0,
-        subtotal: +r[4] || 0,
-        deposits: +r[5] || 0,
-        grossMargin: +r[13] || 0,
-        salesPerSqFt: +r[14] || 0,
-        goalVariance: +r[15] || 0,
+        sales: getNum(r, msIdxMap, 'Sales'),
+        deliveryFees: getNum(r, msIdxMap, 'Delivery Fees', 'Delivery Fee'),
+        subtotal: getNum(r, msIdxMap, 'Subtotal'),
+        deposits: getNum(r, msIdxMap, 'Deposits'),
+        grossMargin: getNum(r, msIdxMap, 'Gross Margin', 'Gross Margin $'),
+        salesPerSqFt: getNum(r, msIdxMap, 'Sales / Sq Ft', 'Sales Per Sq Ft'),
+        goalVariance: getNum(r, msIdxMap, 'Goal Variance'),
       };
     })
     .filter(m => m.sales > 0 || m.subtotal > 0);
@@ -121,13 +185,24 @@ function parseWorkbook() {
 
   // ── Weekday Analysis ──
   const rawWA = xlsx.utils.sheet_to_json(wb.Sheets['Weekday Analysis'], { header: 1 });
+  const waHeaders = rawWA[1] || rawWA[0] || [];
+  const waIdxMap = buildHeaderIndexMap(waHeaders);
+  logMissingHeaders('Weekday Analysis', waIdxMap, [
+    { aliases: ['Day', 'Weekday'] },
+    { aliases: ['Avg Sales', 'Average Sales'] },
+    { aliases: ['Avg Subtotal', 'Average Subtotal'] },
+    { aliases: ['Avg Gross Margin', 'Average Gross Margin'] },
+    { aliases: ['Days Loaded'] },
+    { aliases: ['Goal Hit %', 'Goal Hit Pct'] },
+  ]);
+
   const weekdays = rawWA.slice(2).filter(r => r[0]).map(r => ({
-    day: r[0],
-    avgSales: +r[1] || 0,
-    avgSubtotal: +r[2] || 0,
-    avgGrossMargin: +r[3] || 0,
-    daysLoaded: +r[4] || 0,
-    goalHitPct: +r[5] || 0,
+    day: getText(r, waIdxMap, 'Day', 'Weekday') || r[0],
+    avgSales: getNum(r, waIdxMap, 'Avg Sales', 'Average Sales'),
+    avgSubtotal: getNum(r, waIdxMap, 'Avg Subtotal', 'Average Subtotal'),
+    avgGrossMargin: getNum(r, waIdxMap, 'Avg Gross Margin', 'Average Gross Margin'),
+    daysLoaded: getNum(r, waIdxMap, 'Days Loaded'),
+    goalHitPct: getNum(r, waIdxMap, 'Goal Hit %', 'Goal Hit Pct'),
   }));
 
   return { daily, monthly, kpis, weekdays };
