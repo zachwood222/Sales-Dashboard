@@ -110,10 +110,60 @@ const pct=n=>n==null?'—':(n*100).toFixed(1)+'%'; const num=n=>(+n||0);
 const mult=n=>n==null?'—':n.toFixed(2)+'×';
 const sum=(rows,key)=>rows.reduce((total,row)=>total+num(row?.[key]),0);
 const avg=(rows,key)=>rows.length?sum(rows,key)/rows.length:0;
-const lastNDaysRows=(rows,days)=>{
- const sorted=[...(rows||[])].sort((a,b)=>String(a?.date||'').localeCompare(String(b?.date||'')));
- return sorted.slice(-Math.max(0,days));
-};
+let dataset={monthly:[],daily:[],kpis:{}};
+
+function lastNDaysRows(rows,n){
+ return [...(rows||[])].sort((a,b)=>String(a.date).localeCompare(String(b.date))).slice(-n);
+}
+
+function monthlyChart(monthly){
+ const rows=[...(monthly||[])].sort((a,b)=>String(a.month).localeCompare(String(b.month)));
+ const labels=rows.map(r=>r.month);
+ const sales=rows.map(r=>num(r.subtotal));
+ const margin=rows.map(r=>num(r.grossMargin));
+ const ctx=$('monthChart');
+ if(chart) chart.destroy();
+ chart=new Chart(ctx,{type:'bar',data:{labels,datasets:[{label:'Subtotal',data:sales,backgroundColor:'#6fa8ff'},{label:'Gross Margin',data:margin,backgroundColor:'#38d39f'}]},options:{responsive:true,maintainAspectRatio:false}});
+}
+
+function renderDailyTable(){
+ const start=$('dailyStart')?.value||'';
+ const end=$('dailyEnd')?.value||'';
+ const weekday=$('weekdayFilter')?.value||'';
+ const tender=$('tenderFilter')?.value||'all';
+ let rows=[...(dataset.daily||[])].sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+ if(start) rows=rows.filter(r=>String(r.date)>=start);
+ if(end) rows=rows.filter(r=>String(r.date)<=end);
+ if(weekday) rows=rows.filter(r=>String(r.weekday||'')===weekday);
+ if(tender!='all') rows=rows.filter(r=>num(r[tender])>0);
+ let html='<thead><tr><th>Date</th><th>Weekday</th><th>Subtotal</th><th>Gross Margin</th><th>Deposits</th><th>Cash</th><th>Check</th><th>Card</th></tr></thead><tbody>';
+ rows.forEach(r=>html+='<tr><td>'+r.date+'</td><td>'+(r.weekday||'')+'</td><td>'+money(num(r.subtotal))+'</td><td>'+money(num(r.grossMarginDollar||r.grossMargin))+'</td><td>'+money(num(r.deposits))+'</td><td>'+money(num(r.cash))+'</td><td>'+money(num(r.check))+'</td><td>'+money(num(r.card))+'</td></tr>');
+ html+='</tbody>';
+ $('dailyTable').innerHTML=html;
+ $('dailyCount').textContent=rows.length+' days';
+ window._dailyExport=rows;
+}
+
+function renderWeekdayFilter(){
+ const days=[...new Set((dataset.daily||[]).map(r=>r.weekday).filter(Boolean))];
+ const el=$('weekdayFilter');
+ if(!el) return;
+ el.innerHTML='<option value="">All</option>'+days.map(d=>'<option value="'+d+'">'+d+'</option>').join('');
+}
+
+function exportCsv(type){
+ const rows=type==='monthly'?(window._monthlyExport||[]):(window._dailyExport||[]);
+ if(!rows.length) return;
+ const cols=Object.keys(rows[0]);
+ const esc=v=>'"'+String(v??'').replaceAll('"','""')+'"';
+ const csv=[cols.join(','),...rows.map(r=>cols.map(c=>esc(r[c])).join(','))].join('\n');
+ const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+ const a=document.createElement('a');
+ a.href=URL.createObjectURL(blob);
+ a.download=type+'-'+new Date().toISOString().slice(0,10)+'.csv';
+ a.click();
+ URL.revokeObjectURL(a.href);
+}
 
 function renderMonthlyTable(){
  const rows=[...dataset.monthly].sort((a,b)=>a.month.localeCompare(b.month)).map(r=>({month:r.month,subtotal:num(r.subtotal),grossMargin:num(r.grossMargin),gmPct:num(r.grossMarginPct),deposits:num(r.deposits),mom:r.subtotalPrev?((num(r.subtotal)-num(r.subtotalPrev))/num(r.subtotalPrev)):null}));
@@ -129,6 +179,7 @@ function fmtTs(ts){return ts?new Date(ts).toLocaleString():'—'}
 
 function apply(json){
  const {kpis,monthly,daily}=json.data;
+ dataset={kpis,monthly,daily};
  const mode = readMode();
  $('updated').textContent = `Mode: ${modeLabel(mode)} · Last Google sync: ${fmtTs(json.lastGoogleSync||json.lastUpdated)} · Last upload ingest: ${fmtTs(json.lastUploadIngest)}`;
  $('monthTag').textContent = kpis.currentMonth || 'Current Month';
@@ -143,6 +194,9 @@ function apply(json){
  const last30=lastNDaysRows(daily,30); const cash=sum(last30,'cash'), card=sum(last30,'card'), total=Math.max(1,cash+card); $('mix').textContent=pct(card/total)+' card'; $('mixSub').textContent=money(cash)+' cash / '+money(card)+' card';
  const tax=sum(last30,'stateTax')+sum(last30,'cityTax'), del=sum(last30,'deliveryFee'); $('tax').textContent=money(tax+del); $('taxSub').textContent='Taxes '+money(tax)+' · Delivery '+money(del);
  monthlyChart(monthly);
+ renderWeekdayFilter();
+ renderDailyTable();
+ renderMonthlyTable();
 }
 async function load(){const r=await fetch('/api/data'); if(!r.ok) return; apply(await r.json())}
 async function refreshData(){await fetch('/api/refresh'); await load();}
