@@ -50,7 +50,7 @@ function parseWorkbook() {
 
   // ── Daily Entry ──
   const rawDE = xlsx.utils.sheet_to_json(wb.Sheets['Daily Entry'], { header: 1 });
-  const headers = rawDE[1]; // row index 1 is the real header
+  const headers = rawDE[1] || []; // row index 1 is the real header
   const dailyRows = rawDE.slice(2).filter(r => r[0] && r[1]);
 
   const daily = dailyRows.map(r => ({
