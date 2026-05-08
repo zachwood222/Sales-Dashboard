@@ -130,6 +130,7 @@ function fmtTs(ts){return ts?new Date(ts).toLocaleString():'—'}
 
 function apply(json){
  const {kpis,monthly,daily}=json.data;
+ dataset={kpis,monthly,daily};
  const mode = readMode();
  $('updated').textContent = `Mode: ${modeLabel(mode)} · Last Google sync: ${fmtTs(json.lastGoogleSync||json.lastUpdated)} · Last upload ingest: ${fmtTs(json.lastUploadIngest)}`;
  $('monthTag').textContent = kpis.currentMonth || 'Current Month';
@@ -144,6 +145,9 @@ function apply(json){
  const last30=lastNDaysRows(daily,30); const cash=sum(last30,'cash'), card=sum(last30,'card'), total=Math.max(1,cash+card); $('mixVal').textContent=pct(card/total)+' card'; $('mixSub').textContent=money(cash)+' cash / '+money(card)+' card';
  const tax=sum(last30,'stateTax')+sum(last30,'cityTax'), del=sum(last30,'deliveryFee'); $('tax').textContent=money(tax+del); $('taxSub').textContent='Taxes '+money(tax)+' · Delivery '+money(del);
  monthlyChart(monthly);
+ renderWeekdayFilter();
+ renderDailyTable();
+ renderMonthlyTable();
 }
 async function load(){const r=await fetch('/api/data'); if(!r.ok) return; apply(await r.json())}
 async function refreshData(){await fetch('/api/refresh'); await load();}
