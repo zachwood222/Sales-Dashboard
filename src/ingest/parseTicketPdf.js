@@ -1,7 +1,7 @@
 const fs = require('fs/promises');
 
 const FIELD_MAP = {
-  subtotal: ['total sale', 'subtotal', 'sub total', 'sub-total'],
+  subtotal: ['total sale', 'total sales', 'subtotal', 'sub total', 'sub-total'],
   cash: ['cash'],
   card: ['card', 'credit card', 'debit card'],
   deposits: ['deposits', 'deposit'],
@@ -70,6 +70,17 @@ function normalizeDate(rawDate, options = {}) {
     return { value: normalized, confidence, error };
   }
 
+  const monthName = src.match(/^(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s+(\d{1,2}),?\s+(\d{2,4})$/i);
+  if (monthName) {
+    const monthLookup = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, sept: 9, oct: 10, nov: 11, dec: 12 };
+    const monthKey = monthName[1].toLowerCase().replace('.', '').slice(0, 4) === 'sept' ? 'sept' : monthName[1].toLowerCase().replace('.', '').slice(0, 3);
+    const month = monthLookup[monthKey];
+    const day = Number(monthName[2]);
+    const year = monthName[3].length === 2 ? `20${monthName[3]}` : monthName[3];
+    const normalized = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    return { value: normalized, confidence: 0.97, error: null };
+  }
+
   return { value: null, confidence: 0, error: `invalid_date:${src}` };
 }
 
@@ -106,8 +117,10 @@ function parseDailyRecordFromText(text, options = {}) {
     .map(line => line.trim())
     .filter(Boolean);
 
-  const dateLine = lines.find(line => /\bdate\b/i.test(line)) || lines.find(line => /\d{1,4}[/-]\d{1,2}[/-]\d{1,4}/.test(line));
-  const dateToken = dateLine && dateLine.match(/(\d{1,4}[/-]\d{1,2}[/-]\d{1,4})/);
+    const dateLine = lines.find(line => /\bdate\b/i.test(line))
+    || lines.find(line => /\d{1,4}[/-]\d{1,2}[/-]\d{1,4}/.test(line))
+    || lines.find(line => /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\b/i.test(line));
+  const dateToken = dateLine && dateLine.match(/(\d{1,4}[/-]\d{1,2}[/-]\d{1,4}|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{1,2},?\s+\d{2,4})/i);
 
   const parsed = {
     date: normalizeDate(dateToken ? dateToken[1] : null, options)
