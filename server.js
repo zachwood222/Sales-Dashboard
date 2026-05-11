@@ -270,7 +270,42 @@ function parseWorkbook() {
     goalHitPct: getNum(r, waIdxMap, 'Goal Hit %', 'Goal Hit Pct'),
   }));
 
-  return { daily: mergedDaily, monthly, kpis, weekdays, sourceStats: buildSourceStats(mergedDaily, uploadStore.lastUploadAt) };
+  const hydratedKpis = hydrateKpisFromData(kpis, mergedDaily, monthly);
+
+  return { daily: mergedDaily, monthly, kpis: hydratedKpis, weekdays, sourceStats: buildSourceStats(mergedDaily, uploadStore.lastUploadAt) };
+}
+
+
+function hydrateKpisFromData(baseKpis = {}, daily = [], monthly = []) {
+  const computed = computeKpisFromDaily(daily);
+  const monthlyGrossMargin = monthly.reduce((sum, row) => sum + (+row.grossMargin || 0), 0);
+  const avgInventoryCost = +baseKpis.avgInventoryCost || 0;
+  const derived = {
+    ytdSubtotal: computed.ytdSubtotal,
+    mtdSubtotal: computed.mtdSubtotal,
+    mtdGrossMargin: computed.mtdGrossMargin,
+    depositPct: computed.depositPct,
+    bestDaySubtotal: computed.bestDaySubtotal,
+    bestDayDate: computed.bestDayDate,
+    loadedDays: computed.loadedDays,
+    ytdGMROI: avgInventoryCost > 0 ? monthlyGrossMargin / avgInventoryCost : null,
+  };
+
+  const hydrated = { ...baseKpis };
+  for (const [key, value] of Object.entries(derived)) {
+    const current = hydrated[key];
+    const missing = current == null || current === '' || (typeof current === 'number' && Number.isNaN(current));
+    if (missing) hydrated[key] = value;
+  }
+
+  if ((!hydrated.bestDayWeekday || hydrated.bestDayWeekday === '') && computed.bestDayDate) {
+    const d = new Date(`${computed.bestDayDate}T00:00:00Z`);
+    if (!Number.isNaN(d.getTime())) {
+      hydrated.bestDayWeekday = d.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+    }
+  }
+
+  return hydrated;
 }
 
 function computeMonthlyFromDaily(daily) {
