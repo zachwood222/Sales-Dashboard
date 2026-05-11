@@ -162,7 +162,7 @@ function parseWorkbook() {
     ['Cash Sales', 'Cash'],
     ['Card Sales', 'Card'],
     ['Check Sales', 'Check', 'Deposits'],
-    ['Subtotal'],
+    ['Subtotal', 'Sales'],
     ['State Tax'],
     ['City Tax'],
   ];
